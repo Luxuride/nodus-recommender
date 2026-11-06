@@ -26,6 +26,7 @@
 pub mod accounts;
 pub mod crypto;
 pub mod export;
+pub mod feed;
 pub mod jobs;
 pub mod models;
 pub mod retention;

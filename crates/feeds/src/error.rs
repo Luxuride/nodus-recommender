@@ -29,10 +29,6 @@ pub enum ApiError {
     #[error("not found")]
     NotFound,
     /// The client speaks a contract this build no longer honours.
-    #[expect(
-        dead_code,
-        reason = "raised when the contract gate reads X-Contract-Version"
-    )]
     #[error("client contract {client} is older than {min}")]
     ClientTooOld {
         /// Contract version the client announced.

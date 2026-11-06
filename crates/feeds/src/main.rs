@@ -9,6 +9,7 @@
 
 mod auth;
 mod config;
+mod cursor;
 mod error;
 mod routes;
 mod state;

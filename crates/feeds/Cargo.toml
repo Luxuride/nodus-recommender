@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 axum = { workspace = true }
+base64 = { version = "0.22", features = ["alloc"] }
 nodus-core = { workspace = true }
 nodus-shared = { workspace = true }
 nodus-store = { workspace = true }

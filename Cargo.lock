@@ -1260,6 +1260,7 @@ name = "nodus-feeds"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "nodus-core",
  "nodus-shared",
  "nodus-store",
@@ -1309,6 +1310,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.21",
  "time",
+ "tokio",
  "tracing",
  "uuid",
 ]
