@@ -28,6 +28,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "tim
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = "2"
+futures = { version = "0.3", default-features = false, features = ["std"] }
 
 # HTTP surface.
 axum = { version = "0.8", features = ["macros"] }

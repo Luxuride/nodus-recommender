@@ -8,7 +8,7 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
-use crate::crypto::TokenSealer;
+use nodus_store::crypto::TokenSealer;
 
 /// Everything the service needs to know to run.
 #[derive(Debug, Clone)]

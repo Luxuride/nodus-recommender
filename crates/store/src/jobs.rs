@@ -88,10 +88,34 @@ pub async fn enqueue(pool: &PgPool, job: &NewJob) -> Result<Option<i64>, sqlx::E
 ///
 /// Propagates [`sqlx::Error`].
 pub async fn claim(pool: &PgPool, worker_id: &str, limit: i64) -> Result<Vec<Job>, sqlx::Error> {
+    claim_kinds(pool, worker_id, limit, None).await
+}
+
+/// Claim up to `limit` due jobs whose kind is in `kinds`.
+///
+/// The filter exists so one deployment can specialise: an I/O-bound replica that
+/// only crawls, and a compute replica that only recomputes similarity, run the same
+/// image with different `kinds`. `None` claims any kind, which is what a single
+/// replica wants.
+///
+/// An empty slice claims nothing, which is the useful answer for a replica that was
+/// misconfigured into serving no tier — it idles visibly instead of taking work it
+/// was not sized for.
+///
+/// # Errors
+///
+/// Propagates [`sqlx::Error`].
+pub async fn claim_kinds(
+    pool: &PgPool,
+    worker_id: &str,
+    limit: i64,
+    kinds: Option<&[String]>,
+) -> Result<Vec<Job>, sqlx::Error> {
     sqlx::query_as::<_, Job>(
         "WITH due AS ( \
              SELECT id FROM job \
              WHERE status = 'pending' AND run_after <= now() AND attempts < max_attempts \
+                 AND ($3::text[] IS NULL OR kind = ANY($3)) \
              ORDER BY priority, run_after \
              LIMIT $2 \
              FOR UPDATE SKIP LOCKED \
@@ -103,6 +127,7 @@ pub async fn claim(pool: &PgPool, worker_id: &str, limit: i64) -> Result<Vec<Job
     )
     .bind(worker_id)
     .bind(limit)
+    .bind(kinds)
     .fetch_all(pool)
     .await
 }

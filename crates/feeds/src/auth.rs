@@ -14,9 +14,9 @@
 use axum::http::{HeaderMap, header};
 use serde::Deserialize;
 
-use crate::crypto::fingerprint;
 use crate::error::ApiError;
 use crate::state::{AppState, Identity};
+use nodus_store::crypto::fingerprint;
 
 /// Header naming the instance the token belongs to.
 pub const INSTANCE_HEADER: &str = "x-instance-host";

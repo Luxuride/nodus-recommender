@@ -9,7 +9,6 @@
 
 mod auth;
 mod config;
-mod crypto;
 mod error;
 mod routes;
 mod state;

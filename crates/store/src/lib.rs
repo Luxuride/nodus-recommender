@@ -4,7 +4,7 @@
 //! `nodus-calculator`) works with the plain Rust rows in [`models`] and the functions in
 //! [`users`], [`accounts`] and [`jobs`], so a query plan can be changed without
 //! touching business logic — and a business rule can be read without reading SQL.
-//! [`retention`] and [`export`] are the two ends of the data lifecycle: the batched
+//! [`crypto`] seals the tokens we hold a copy of, [`retention`] and [`export`] are the two ends of the data lifecycle: the batched
 //! deletes that keep the tables inside their size budget, and the per-user document
 //! that hands a person everything we still hold.
 //!
@@ -24,6 +24,7 @@
 #![forbid(unsafe_code)]
 
 pub mod accounts;
+pub mod crypto;
 pub mod export;
 pub mod jobs;
 pub mod models;

@@ -31,20 +31,12 @@ pub enum CryptoError {
     #[error("token encryption key must be {KEY_LEN} bytes, base64-encoded")]
     InvalidKey,
     /// The stored column was shorter than a nonce.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the sync worker is the first reader")
-    )]
     #[error("sealed token is truncated")]
     Truncated,
     /// The tag did not verify: wrong key, or the ciphertext was altered.
     #[error("sealed token failed authentication")]
     Decrypt,
     /// The plaintext was not valid UTF-8 (should be impossible for tokens).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the sync worker is the first reader")
-    )]
     #[error("sealed token did not decode to text")]
     NotText,
 }
@@ -118,13 +110,6 @@ impl TokenSealer {
     /// [`CryptoError::Truncated`] if the column is shorter than a nonce,
     /// [`CryptoError::Decrypt`] if authentication fails — which is the signal to
     /// treat the stored token as revoked rather than to retry.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the sync worker is the first caller that decrypts"
-        )
-    )]
     pub fn open(&self, sealed: &[u8]) -> Result<String, CryptoError> {
         if sealed.len() <= NONCE_LEN {
             return Err(CryptoError::Truncated);

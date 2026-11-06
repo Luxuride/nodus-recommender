@@ -24,10 +24,6 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tower-http = { workspace = true }
-base64 = { version = "0.22", features = ["alloc"] }
-chacha20poly1305 = { version = "0.11", features = ["alloc"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots"] }
-sha2 = "0.10"
-getrandom = "0.3"
 time = { workspace = true }
 uuid = { workspace = true }

@@ -528,6 +528,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
+name = "futures"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a31d2a3fbaaeb2af2368bbdd904aa8e812d3c04a1ee10d3171f52d556e5d0a3"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-io",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -589,6 +603,7 @@ version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
 dependencies = [
+ "futures-channel",
  "futures-core",
  "futures-io",
  "futures-sink",
@@ -1145,14 +1160,18 @@ dependencies = [
 name = "nodus-calculator"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "nodus-core",
  "nodus-instance",
  "nodus-shared",
  "nodus-store",
  "serde",
+ "sqlx",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1164,16 +1183,12 @@ name = "nodus-feeds"
 version = "0.1.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
- "chacha20poly1305",
- "getrandom 0.3.4",
  "nodus-core",
  "nodus-shared",
  "nodus-store",
  "reqwest",
  "serde",
  "serde_json",
- "sha2",
  "sqlx",
  "thiserror 2.0.21",
  "time",
@@ -1205,9 +1220,13 @@ dependencies = [
 name = "nodus-store"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "chacha20poly1305",
+ "getrandom 0.3.4",
  "nodus-shared",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "thiserror 2.0.21",
  "time",

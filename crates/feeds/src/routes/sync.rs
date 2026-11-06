@@ -12,9 +12,9 @@ use axum::http::HeaderMap;
 use nodus_shared::{MeResponse, SyncSettings, SyncTokenRequest};
 
 use crate::auth::{Credentials, authenticate};
-use crate::crypto::fingerprint;
 use crate::error::ApiError;
 use crate::state::AppState;
+use nodus_store::crypto::fingerprint;
 
 /// Start holding an encrypted copy of the caller's token and queue their first sync.
 ///
