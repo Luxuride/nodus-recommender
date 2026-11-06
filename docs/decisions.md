@@ -20,8 +20,9 @@ documents can cite them (`D4`).
 | D10 | **Separate `sdk` repository** | two deployables on two cadences need a versioned wire contract and a CI that compiles both against a candidate commit; shared DTOs are the whole point of doing this in Rust | the contract stabilises so much that a monorepo's atomic changes win — unlikely while both sides ship |
 | D11 | **Self-imposed 50% rate-limit budget** | politeness is the constraint that keeps us from being blocked, and 429 storms are worse than slow sync | never; raise throughput by adding users, not by spending more of the quota |
 | D12 | **No telemetry vendor, no email collected** | the privacy story is a feature and an audit surface we do not want; `interaction_event` is opt-in and first-party | operational needs (crash reporting) exceed what logs give us |
-| D13 | **The SDK owns client state** | the client is a renderer: session, timelines, feed, streaming status and cache policy live in `mastodon-reccom-sdk` behind a `Sdk<I, D, P, C>` over four ports; otherwise pagination and cache rules would exist once in the browser and again in the sync worker and drift | a second UI (native, terminal) appears — the split is the same, only the renderer changes |
+| D13 | **The SDK owns client state** | the client is a renderer: session, timelines, feed, streaming status and cache policy live in `nodus-sdk` behind a `Sdk<I, D, P, C>` over four ports; otherwise pagination and cache rules would exist once in the browser and again in the sync worker and drift | a second UI (native, terminal) appears — the split is the same, only the renderer changes |
 | D14 | **Superproject with submodules, SDK consumed by path** | one gitlink per project pins a known-good combination; `path = "../sdk/crates/…"` keeps cross-project edits atomic and buildable before pushing, and avoids a second copy of the sources in `~/.cargo/git` | an external consumer appears outside this superproject, at which point a tagged `git =` dependency becomes the right second channel |
+| D15 | **No Mastodon mark in any name** | the trademark policy forbids the word mark in a product, service or company name, and the software licence grants no licence to the marks; the project is `Nodus`, crates are `nodus-*`, and the mark appears only in sentences that state compatibility (see [12-trademark.md](12-trademark.md)) | never; this is a legal constraint, not a preference |
 
 ## Notes on the ones that cost the most
 
@@ -42,9 +43,15 @@ buys independent deploy cadence and a hard, versioned boundary; it costs atomic
 changes across the wire. The contract CI (see [08-sdk.md](08-sdk.md))
 exists specifically to make the cost visible early.
 
+**D15** cost a rename of every repository, crate and binary shortly after the
+first push, which is the cheapest possible moment: no downstream consumer existed,
+GitHub keeps redirects from the old names, and the git histories were preserved.
+The lesson is to check naming constraints before publishing, not after.
+
 ## Superseded
 
 | # | Was | Now | Why |
 | --- | --- | --- | --- |
 | D4a | one per-instance dynamically registered `oauth_app`, server-side PKCE sessions | client registers itself; server optionally holds a token copy | a full client owns the OAuth flow; keeping a second registration would mean two identities per instance |
 | D8a | standalone web app for the Feed tab, SSR-capable | full CSR client | a standalone Feed app is not a client; the Feed must live where timelines do |
+| D10a | project named `MastodonReccom`, crates `mastodon-reccom-*` | `Nodus`, crates `nodus-*` | the mark may not appear in a product or service name (D15) |

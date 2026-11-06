@@ -16,8 +16,8 @@ The three projects are submodules of one superproject, so they always sit at the
 relative paths:
 
 ```text
-MastodonReccom/            ← superproject: .devcontainer, .gitmodules, README
-├── sdk/          mastodon-reccom-shared, -mastodon, -sdk   (wire + instance + client state)
+Nodus/            ← superproject: .devcontainer, .gitmodules, README
+├── sdk/          nodus-shared, -instance, -sdk   (wire + instance + client state)
 ├── backend/      core, store, ingest, api · docs/ ← you are here
 └── web/          the Leptos client · docs/
 ```
@@ -37,6 +37,7 @@ MastodonReccom/            ← superproject: .devcontainer, .gitmodules, README
 | [09-privacy.md](09-privacy.md) | Threat model, consent, data minimization, retention, deletion |
 | [10-operations.md](10-operations.md) | Config, migrations, observability, local dev, runbook |
 | [11-roadmap.md](11-roadmap.md) | Milestones and what "done" means for each |
+| [12-trademark.md](12-trademark.md) | Naming rules that keep the Mastodon mark out of our identity |
 | [decisions.md](decisions.md) | Decision log: choice, alternatives, rationale |
 
 Client documents (why Leptos, scope/parity, data layer, UI, quality) live in
