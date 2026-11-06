@@ -1,0 +1,41 @@
+[workspace]
+resolver = "3"
+members = []
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "AGPL-3.0-or-later"
+publish = false
+repository = "https://github.com/luxuride/mastodon-reccom-backend"
+
+# Shared with the web client. The SDK checkout is the `sdk` submodule of the
+# superproject, so a path dependency plus the superproject's gitlink pin one
+# exact combination. See docs/08-sdk.md.
+[workspace.dependencies]
+mastodon-reccom-shared = { path = "../sdk/crates/shared", version = "0.1.0" }
+mastodon-reccom-mastodon = { path = "../sdk/crates/mastodon", version = "0.1.0" }
+
+mastodon-reccom-core = { path = "crates/core", version = "0.1.0" }
+mastodon-reccom-store = { path = "crates/store", version = "0.1.0" }
+mastodon-reccom-ingest = { path = "crates/ingest", version = "0.1.0" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+url = "2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
