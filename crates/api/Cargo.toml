@@ -1,5 +1,5 @@
 [package]
-name = "mastodon-reccom-api"
+name = "nodus-api"
 description = "HTTP service exposing the Mastodon recommendation engine"
 version.workspace = true
 edition.workspace = true
@@ -12,9 +12,9 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-mastodon-reccom-core = { workspace = true }
-mastodon-reccom-shared = { workspace = true }
-mastodon-reccom-store = { workspace = true }
+nodus-core = { workspace = true }
+nodus-shared = { workspace = true }
+nodus-store = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

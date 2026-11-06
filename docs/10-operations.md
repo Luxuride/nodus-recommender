@@ -7,7 +7,7 @@ Status: draft · Last revised: 2026-11-06
 Three repositories, one container:
 
 ```text
-MastodonReccom/
+Nodus/
 ├── .devcontainer/           rust + wasm32 + trunk + docker (shared host daemon)
 ├── sdk/
 ├── backend/                 compose.yml here (Postgres)
@@ -28,8 +28,8 @@ docker compose -f backend/compose.yml up -d
 docker compose -f backend/compose.yml exec postgres psql -U mastodon -c '\dx'
 
 # backend
-cd backend && cargo run --bin mastodon-reccom-api
-cd backend && cargo run --bin mastodon-reccom-sync
+cd backend && cargo run --bin nodus-api
+cd backend && cargo run --bin nodus-sync
 
 # web (proxy /api → localhost:3000)
 cd web && trunk serve --port 8080
@@ -79,8 +79,8 @@ with the offending key named.
 
 ```text
 CDN (static)  ── web/dist, immutable hashed assets, SPA fallback to index.html
-API host      ── mastodon-reccom-api (1..n), /api/v1 only, no static files
-Worker host   ── mastodon-reccom-sync (exactly 1 while the queue is Postgres-based)
+API host      ── nodus-api (1..n), /api/v1 only, no static files
+Worker host   ── nodus-sync (exactly 1 while the queue is Postgres-based)
 Postgres      ── single primary, backups 7 days, no read replicas yet
 ```
 

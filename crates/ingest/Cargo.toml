@@ -1,5 +1,5 @@
 [package]
-name = "mastodon-reccom-ingest"
+name = "nodus-ingest"
 description = "Fediverse data ingestion: background sync, job queue, rate limiting"
 version.workspace = true
 edition.workspace = true
@@ -12,15 +12,15 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-mastodon-reccom-core = { workspace = true }
-mastodon-reccom-mastodon = { workspace = true }
-mastodon-reccom-shared = { workspace = true }
-mastodon-reccom-store = { workspace = true }
+nodus-core = { workspace = true }
+nodus-instance = { workspace = true }
+nodus-shared = { workspace = true }
+nodus-store = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
 [[bin]]
-name = "mastodon-reccom-sync"
+name = "nodus-sync"
 path = "src/bin/sync.rs"

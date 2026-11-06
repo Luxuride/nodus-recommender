@@ -8,9 +8,9 @@ and nothing else:
 
 | Crate | Purpose |
 | --- | --- |
-| `mastodon-reccom-shared` | our wire DTOs (`AccountFeed`, `EventBatch`, `Meta`, error envelope), `CONTRACT_VERSION` |
-| `mastodon-reccom-mastodon` | Mastodon domain model (`Status`, `Account`, …) and `InstanceApi`, the instance surface transports implement |
-| `mastodon-reccom-sdk` | the client state machine: `AppState`, `Command`, `Sdk<I, D, P, C>` and its four ports |
+| `nodus-shared` | our wire DTOs (`AccountFeed`, `EventBatch`, `Meta`, error envelope), `CONTRACT_VERSION` |
+| `nodus-instance` | Mastodon domain model (`Status`, `Account`, …) and `InstanceApi`, the instance surface transports implement |
+| `nodus-sdk` | the client state machine: `AppState`, `Command`, `Sdk<I, D, P, C>` and its four ports |
 
 Anything that would make one consumer's code the other's problem does not belong
 here. `core` (ranking) stays backend-only precisely because the client must not
@@ -38,19 +38,19 @@ framework dependency, so anything web-only cannot sneak in.
 The three projects are submodules of one superproject:
 
 ```text
-MastodonReccom/            ← superproject: .devcontainer, README, .gitmodules
-├── sdk/      → mastodon-reccom-sdk       (submodule)
-├── backend/  → mastodon-reccom-backend   (submodule)
-└── web/      → mastodon-reccom-web       (submodule)
+Nodus/            ← superproject: .devcontainer, README, .gitmodules
+├── sdk/      → nodus-sdk       (submodule)
+├── backend/  → nodus-backend     (submodule)
+└── web/      → nodus-web       (submodule)
 ```
 
 * The superproject pins each project by **gitlink** (an exact commit), so one
-  `MastodonReccom` commit describes a known-good combination of all three.
+  `Nodus` commit describes a known-good combination of all three.
 * Consumers depend on the SDK by **path**, not by `git` URL:
 
   ```toml
-  mastodon-reccom-shared = { path = "../sdk/crates/shared", version = "0.1.0" }
-  mastodon-reccom-sdk    = { path = "../sdk/crates/sdk",    version = "0.1.0" }
+  nodus-shared = { path = "../sdk/crates/shared", version = "0.1.0" }
+  nodus-sdk    = { path = "../sdk/crates/sdk",    version = "0.1.0" }
   ```
 
   Paths work because the submodules always sit at fixed relative positions. The
@@ -85,7 +85,7 @@ The contract has its own version, independent of `backend` and `web` releases:
    appear behind a `Meta::features` flag.
 2. Nothing is removed or renamed inside a minor — deprecate in the docs, remove in
    the next major.
-3. `CONTRACT_VERSION` in `mastodon-reccom-shared` is the single source; it is bumped
+3. `CONTRACT_VERSION` in `nodus-shared` is the single source; it is bumped
    in the same commit as the wire change.
 4. `min_contract` (served by `GET /api/v1/meta`) only rises with a major version, so
    an old client can still reach a server that has moved on.
@@ -139,7 +139,7 @@ still compiles for both consumers" is actually proven.
 
 ## Relationship to the Mastodon API
 
-`mastodon-reccom-mastodon` models the parts of the instance API the client and the
+`nodus-instance` models the parts of the instance API the client and the
 worker both use. It is not a complete Mastodon client: missing endpoints are added
 when a consumer needs one, in the same additive spirit (a new trait method with a
 default-free requirement is a breaking change for 1.0, which is why the SDK stays

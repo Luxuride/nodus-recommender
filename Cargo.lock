@@ -180,65 +180,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
-name = "mastodon-reccom-api"
-version = "0.1.0"
-dependencies = [
- "mastodon-reccom-core",
- "mastodon-reccom-shared",
- "mastodon-reccom-store",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "mastodon-reccom-core"
-version = "0.1.0"
-
-[[package]]
-name = "mastodon-reccom-ingest"
-version = "0.1.0"
-dependencies = [
- "mastodon-reccom-core",
- "mastodon-reccom-mastodon",
- "mastodon-reccom-shared",
- "mastodon-reccom-store",
- "serde",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "mastodon-reccom-mastodon"
-version = "0.1.0"
-dependencies = [
- "mastodon-reccom-shared",
- "serde",
- "thiserror",
- "url",
-]
-
-[[package]]
-name = "mastodon-reccom-shared"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "mastodon-reccom-store"
-version = "0.1.0"
-dependencies = [
- "mastodon-reccom-shared",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -262,6 +203,65 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys",
+]
+
+[[package]]
+name = "nodus-api"
+version = "0.1.0"
+dependencies = [
+ "nodus-core",
+ "nodus-shared",
+ "nodus-store",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "nodus-core"
+version = "0.1.0"
+
+[[package]]
+name = "nodus-ingest"
+version = "0.1.0"
+dependencies = [
+ "nodus-core",
+ "nodus-instance",
+ "nodus-shared",
+ "nodus-store",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nodus-instance"
+version = "0.1.0"
+dependencies = [
+ "nodus-shared",
+ "serde",
+ "thiserror",
+ "url",
+]
+
+[[package]]
+name = "nodus-shared"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "nodus-store"
+version = "0.1.0"
+dependencies = [
+ "nodus-shared",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 ---
-name: mastodon-reccom
+name: nodus
 
 # Local development database for the recommendation service.
 # Run from the host or from the devcontainer:  docker compose up -d
@@ -13,9 +13,9 @@ services:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-mastodon}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mastodon}
-      POSTGRES_DB: ${POSTGRES_DB:-mastodon}
+      POSTGRES_USER: ${POSTGRES_USER:-nodus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nodus}
+      POSTGRES_DB: ${POSTGRES_DB:-nodus}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -35,8 +35,8 @@ services:
       test:
         - CMD-SHELL
         - >-
-          pg_isready -U ${POSTGRES_USER:-mastodon}
-          -d ${POSTGRES_DB:-mastodon}
+          pg_isready -U ${POSTGRES_USER:-nodus}
+          -d ${POSTGRES_DB:-nodus}
       interval: 5s
       timeout: 5s
       retries: 12

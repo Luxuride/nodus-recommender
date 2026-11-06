@@ -8,18 +8,18 @@ edition = "2024"
 rust-version = "1.85"
 license = "AGPL-3.0-or-later"
 publish = false
-repository = "https://github.com/luxuride/mastodon-reccom-backend"
+repository = "https://github.com/luxuride/nodus-backend"
 
 # Shared with the web client. The SDK checkout is the `sdk` submodule of the
 # superproject, so a path dependency plus the superproject's gitlink pin one
 # exact combination. See docs/08-sdk.md.
 [workspace.dependencies]
-mastodon-reccom-shared = { path = "../sdk/crates/shared", version = "0.1.0" }
-mastodon-reccom-mastodon = { path = "../sdk/crates/mastodon", version = "0.1.0" }
+nodus-shared = { path = "../sdk/crates/shared", version = "0.1.0" }
+nodus-instance = { path = "../sdk/crates/instance", version = "0.1.0" }
 
-mastodon-reccom-core = { path = "crates/core", version = "0.1.0" }
-mastodon-reccom-store = { path = "crates/store", version = "0.1.0" }
-mastodon-reccom-ingest = { path = "crates/ingest", version = "0.1.0" }
+nodus-core = { path = "crates/core", version = "0.1.0" }
+nodus-store = { path = "crates/store", version = "0.1.0" }
+nodus-ingest = { path = "crates/ingest", version = "0.1.0" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

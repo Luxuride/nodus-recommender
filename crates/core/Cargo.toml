@@ -1,5 +1,5 @@
 [package]
-name = "mastodon-reccom-core"
+name = "nodus-core"
 description = "Domain types and ranking pipeline for the Mastodon recommendation engine"
 version.workspace = true
 edition.workspace = true

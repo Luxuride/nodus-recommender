@@ -17,7 +17,7 @@ are green in CI.
 
 ## M1 — Contract v0.1 + backend skeleton
 
-Scope: `mastodon-reccom-store` migrations for the tables in
+Scope: `nodus-store` migrations for the tables in
 [03-data-model.md](03-data-model.md) (minus `status` and `model_version`),
 `/healthz`, `/readyz`, `/api/v1/meta`, bearer verification against a real
 instance, `PUT /api/v1/sync/token` with AEAD storage, `sync_user` (P0) landing

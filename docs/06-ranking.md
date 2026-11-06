@@ -110,7 +110,7 @@ code, support bucket, follower-count bucket, shared-instance flag, hour-of-day
 bucket). Trained offline from `interaction_event` joined to `recommendation_item`
 and `account`; ~50k labelled impressions is enough to beat seeded weights.
 
-**Pipeline.** `cargo run -p mastodon-reccom-tools -- bin fit-ranker` (offline bin
+**Pipeline.** `cargo run -p nodus-tools -- bin fit-ranker` (offline bin
 reading Postgres, writing `model_version` rows) → validation on a time-based
 split → promote by flipping `active`. **No online learning**: the feed never
 trains on the request path, so a bad batch cannot corrupt scoring instantly, and

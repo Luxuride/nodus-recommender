@@ -63,7 +63,7 @@ signals are degraded (`signals_unavailable: ["favourites"]`).
 
 ## Contract versioning
 
-The wire types live in `mastodon-reccom-shared` (the contract repo), which is
+The wire types live in `nodus-shared` (the contract repo), which is
 versioned independently of this service and of the client. Rules:
 
 1. **Additive only within a minor.** New fields are optional with `serde(default)`;

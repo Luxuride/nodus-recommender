@@ -4,7 +4,7 @@
 //! instances (REST and streaming APIs, `ActivityPub` where needed), normalizing
 //! what comes back, and writing it to whatever store the design documents
 //! settle on. It should not contain ranking logic — that belongs in
-//! `mastodon-reccom-core`.
+//! `nodus-core`.
 //!
 //! Nothing here is implemented yet; see `docs/` for the design.
 

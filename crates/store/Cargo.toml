@@ -1,5 +1,5 @@
 [package]
-name = "mastodon-reccom-store"
+name = "nodus-store"
 description = "Postgres persistence layer (sqlx repositories and migrations)"
 version.workspace = true
 edition.workspace = true
@@ -12,6 +12,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-mastodon-reccom-shared = { workspace = true }
+nodus-shared = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

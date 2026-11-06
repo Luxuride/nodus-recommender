@@ -18,13 +18,13 @@ flowchart LR
     WEB -->|"REST + WebSocket streaming<br/>user's own token"| M[(Mastodon instances)]
     WEB -->|"recommendations · telemetry<br/>bearer token"| API
     subgraph svc["Rust services"]
-        API["mastodon-reccom-api<br/>axum · feed · events · meta"]
-        SYNC["mastodon-reccom-sync<br/>background graph sync"]
-        CORE["mastodon-reccom-core<br/>pure: similarity · ranking"]
-        SHARED["mastodon-reccom-shared<br/>wire DTOs (wasm-safe)"]
-        MC["mastodon-reccom-mastodon<br/>domain model + InstanceApi trait"]
-        SDKST["mastodon-reccom-sdk<br/>client state machine (AppState · Command)"]
-        STORE["mastodon-reccom-store<br/>sqlx repositories"]
+        API["nodus-api<br/>axum · feed · events · meta"]
+        SYNC["nodus-sync<br/>background graph sync"]
+        CORE["nodus-core<br/>pure: similarity · ranking"]
+        SHARED["nodus-shared<br/>wire DTOs (wasm-safe)"]
+        MC["nodus-instance<br/>domain model + InstanceApi trait"]
+        SDKST["nodus-sdk<br/>client state machine (AppState · Command)"]
+        STORE["nodus-store<br/>sqlx repositories"]
         API --> CORE
         API --> STORE
         API --> SHARED
@@ -51,8 +51,8 @@ Two rules make this coherent:
 ## Repositories
 
 ```text
-MastodonReccom/
-├── sdk/          mastodon-reccom-shared, mastodon-reccom-mastodon, mastodon-reccom-sdk  (git repo)
+Nodus/
+├── sdk/          nodus-shared, nodus-instance, nodus-sdk  (git repo)
 ├── backend/      core, store, ingest, api                        (git repo)
 │   └── docs/     this document set
 └── web/          the Leptos client                               (git repo)
@@ -65,7 +65,7 @@ depend on the SDK crates, and both are compiled for different targets (native vs
 split has costs:
 
 - **The SDK owns client state, not just types.** Session, timelines, feed,
-  streaming status and cache policy live in `mastodon-reccom-sdk`; the web client
+  streaming status and cache policy live in `nodus-sdk`; the web client
   renders that state and dispatches commands. Without this, pagination and
   cache-expiry rules would exist twice (browser and sync worker) and drift.
 - **Pinned by gitlink, consumed by path.** The superproject records the exact
@@ -89,14 +89,14 @@ container, which is the supported local setup.
 
 | Crate | Repo | Kind | Responsibility |
 | --- | --- | --- | --- |
-| `mastodon-reccom-core` | backend | lib, pure, wasm-safe | domain types, similarity, candidate generation, scoring, diversity, reason formatting. No I/O, no clock, no async. |
-| `mastodon-reccom-shared` | sdk | lib, wasm-safe | wire DTOs shared by API and client (serde). The single source of truth for the HTTP contract. |
-| `mastodon-reccom-mastodon` | sdk | lib, native + wasm | Mastodon domain model plus `InstanceApi` (the operations as a trait). Transports are feature-gated: `reqwest` on native, `gloo-net`/`web-sys` on wasm. One surface, no duplicated endpoint definitions. |
-| `mastodon-reccom-sdk` | sdk | lib, wasm-safe | client state machine: `AppState`, `Command`, `Sdk<I, D, P, C>` over four ports (`InstanceApi`, `Discovery`, `Persistence`, `Clock`). No framework dependency, no I/O in `dispatch`. |
-| `mastodon-reccom-store` | backend | lib | the only crate that writes SQL: sqlx repositories, migrations. |
-| `mastodon-reccom-ingest` | backend | lib + `mastodon-reccom-sync` bin | background graph sync, job queue, crawl frontier, rate limiter. |
-| `mastodon-reccom-api` | backend | bin | axum HTTP: recommendations, telemetry, token intake, health/metrics. |
-| `mastodon-reccom-web` | web | wasm bin | the Leptos client (the product UI). |
+| `nodus-core` | backend | lib, pure, wasm-safe | domain types, similarity, candidate generation, scoring, diversity, reason formatting. No I/O, no clock, no async. |
+| `nodus-shared` | sdk | lib, wasm-safe | wire DTOs shared by API and client (serde). The single source of truth for the HTTP contract. |
+| `nodus-instance` | sdk | lib, native + wasm | Mastodon domain model plus `InstanceApi` (the operations as a trait). Transports are feature-gated: `reqwest` on native, `gloo-net`/`web-sys` on wasm. One surface, no duplicated endpoint definitions. |
+| `nodus-sdk` | sdk | lib, wasm-safe | client state machine: `AppState`, `Command`, `Sdk<I, D, P, C>` over four ports (`InstanceApi`, `Discovery`, `Persistence`, `Clock`). No framework dependency, no I/O in `dispatch`. |
+| `nodus-store` | backend | lib | the only crate that writes SQL: sqlx repositories, migrations. |
+| `nodus-ingest` | backend | lib + `nodus-sync` bin | background graph sync, job queue, crawl frontier, rate limiter. |
+| `nodus-api` | backend | bin | axum HTTP: recommendations, telemetry, token intake, health/metrics. |
+| `nodus-web` | web | wasm bin | the Leptos client (the product UI). |
 
 `core`, `shared` and `mastodon` compile to `wasm32-unknown-unknown`; if one of
 them starts needing tokio or sqlx, something is in the wrong crate.
