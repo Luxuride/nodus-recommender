@@ -25,6 +25,7 @@
 
 pub mod accounts;
 pub mod crypto;
+pub mod events;
 pub mod export;
 pub mod feed;
 pub mod jobs;
