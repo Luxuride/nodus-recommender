@@ -132,6 +132,21 @@ Scale it on **queue depth and per-tier job age**, not on CPU: the crawler is
 rate-limit bound, so extra replicas mostly add in-flight requests up to the
 per-host budget. `minReplicas: 1`, `maxReplicas: 8`.
 
+**`audience_weight` is derived, and stale by one pass.** D24 sizes the refresh
+interval (hot/warm/cold) and the scheduler's ordering from
+`account.audience_weight`, the number of users whose affinity set contains an
+account. Only the affinity recompute maintains it (`store::audience::recompute`,
+called at the end of every `recompute_similarity` pass): one statement lifts the
+count for accounts that have affinity rows, a second zeroes accounts that dropped
+out of every set, and both are guarded so an unchanged pass rewrites nothing.
+Treat the column as **eventually consistent by one recompute cycle**: between a
+user's affinity rewrite and the next pass, a newly popular account is still on
+its old, colder tier and a fallen one is still refreshed too often. The scheduler
+must tolerate that — staleness costs at most an extra or a delayed fetch, never a
+wrong recommendation — and must never compute the count with `COUNT(*)` in the
+scheduling query, which would put a group-by on `account_affinity` on the hot
+path.
+
 **Postgres: one primary, two roles.** `nodus_feeds` (read on derived tables,
 insert on `recommendation_item`/`interaction_event`, read-write on `app_user`
 for consent) and `nodus_calculator` (read-write on graph and derived tables).

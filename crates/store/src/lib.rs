@@ -25,6 +25,7 @@
 
 pub mod accounts;
 pub mod affinity;
+pub mod audience;
 pub mod crypto;
 pub mod events;
 pub mod export;

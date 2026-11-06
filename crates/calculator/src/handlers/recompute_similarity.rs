@@ -15,6 +15,9 @@
 //! 4. Propagate the neighbours' follows into `account_affinity`:
 //!    `score[c] += similarity · follow_weight(c)`, with `support` counting the
 //!    neighbours that follow `c`, keeping the top [`CANDIDATE_LIMIT`].
+//! 5. Refresh `account.audience_weight` once for the whole pass
+//!    ([`nodus_store::audience::recompute`]), which is the reach count D24's
+//!    refresh tiers and scheduler ordering are built on.
 //!
 //! A subject-less job is a maintenance pass over users whose follow edges changed in
 //! the last day. A named subject that no longer has an account row is a permanent
@@ -31,6 +34,7 @@ use nodus_core::similarity::{
     blend, compare,
 };
 use nodus_store::affinity::{self, AffinityRow};
+use nodus_store::audience;
 use nodus_store::models::Job;
 use nodus_store::similarity::{self, NeighbourRow, UserGraph};
 use sqlx::PgPool;
@@ -247,6 +251,19 @@ impl Handler for RecomputeSimilarity {
                     }
                 }
             }
+
+            // Both branches rewrite affinity rows, so both move the count behind
+            // D24's refresh tiers. One aggregate per job is cheap next to the
+            // per-user similarity work, and doing it here (not per user) keeps the
+            // count consistent for the whole pass.
+            let refreshed = audience::recompute(&self.pool)
+                .await
+                .map_err(|error| database(&error))?;
+            info!(
+                updated = refreshed.updated,
+                cleared = refreshed.cleared,
+                "audience_weight refreshed"
+            );
             Ok(())
         })
     }
