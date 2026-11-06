@@ -19,6 +19,10 @@
 //! burst from cold. Clock injection is explicit (`_at` methods) instead of a
 //! trait object so tests read as "at t, then at t + 1 s" and cannot accidentally
 //! depend on wall time.
+//!
+//! Buckets are keyed by `(host, bucket)` — the crawler passes a token fingerprint
+//! as the bucket so one drained token does not silence its siblings — while a hold
+//! is keyed by host alone, because a `429` is the instance refusing all of them.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -37,17 +41,28 @@ fn poisoned(what: &str) -> CacheError {
     CacheError::Unavailable(format!("{what} lock poisoned"))
 }
 
-/// Token-bucket request budget, one bucket per host.
+/// Token-bucket request budget, one bucket per `(host, token)`.
 ///
 /// The bucket starts full, so a cold start may spend `burst` requests
 /// immediately; refill is continuous at `rate_per_second`. This is the exact
 /// policy described on [`Budget`], minus the 50%-of-reported-remaining rule,
-/// which the caller applies from response headers.
+/// which the caller applies from response headers. A host-wide hold (the
+/// instance's own `Retry-After`) refuses every bucket on that host until it
+/// expires.
 #[derive(Debug)]
 pub struct InMemoryBudget {
     rate_per_second: f64,
     burst: f64,
     buckets: Mutex<HashMap<String, Bucket>>,
+    holds: Mutex<HashMap<String, Instant>>,
+}
+
+/// The longest a single `Retry-After` may park a host, so a broken header cannot
+/// stop the crawl indefinitely.
+const MAX_HOLD: Duration = Duration::from_secs(86_400);
+
+fn bucket_key(host: &str, bucket: &str) -> String {
+    format!("{host}:{bucket}")
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -69,20 +84,34 @@ impl InMemoryBudget {
             rate_per_second: f64::from(rate_per_second),
             burst: f64::from(burst),
             buckets: Mutex::new(HashMap::new()),
+            holds: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Take one request from `host` at `now`.
+    /// Take one request from `bucket` on `host` at `now`.
     ///
     /// The explicit instant is the test seam: production code goes through
     /// [`Budget::acquire`], which passes [`Instant::now`]. Time moving backwards
-    /// (only possible when a test injects it) refills nothing.
+    /// (only possible when a test injects it) refills nothing. A live hold on
+    /// `host` refuses before the bucket is touched, so the refused request costs
+    /// nothing when the hold ends.
     ///
     /// # Errors
-    /// Returns [`CacheError::Unavailable`] if the bucket map is poisoned.
-    pub fn acquire_at(&self, host: &str, now: Instant) -> Result<bool, CacheError> {
+    /// Returns [`CacheError::Unavailable`] if the bucket or hold map is poisoned.
+    pub fn acquire_at(&self, host: &str, bucket: &str, now: Instant) -> Result<bool, CacheError> {
+        let held = self
+            .holds
+            .lock()
+            .map_err(|_| poisoned("budget hold"))?
+            .get(host)
+            .copied()
+            .is_some_and(|until| until > now);
+        if held {
+            return Ok(false);
+        }
+
         let mut buckets = self.buckets.lock().map_err(|_| poisoned("budget"))?;
-        let bucket = buckets.entry(host.to_owned()).or_insert(Bucket {
+        let bucket = buckets.entry(bucket_key(host, bucket)).or_insert(Bucket {
             tokens: self.burst,
             last: now,
         });
@@ -93,14 +122,84 @@ impl InMemoryBudget {
         bucket.last = now;
         Ok(allowed)
     }
+
+    /// Park every bucket on `host` until `now + hold`.
+    ///
+    /// A hold is a floor, not a new clock: a shorter `Retry-After` arriving while
+    /// a longer hold is live must not cut it short. The explicit instant is the
+    /// test seam.
+    ///
+    /// # Errors
+    /// Returns [`CacheError::Unavailable`] if the hold map is poisoned.
+    pub fn hold_at(&self, host: &str, hold: Duration, now: Instant) -> Result<(), CacheError> {
+        let until = now
+            .checked_add(hold.min(MAX_HOLD))
+            .unwrap_or(now + MAX_HOLD);
+        let mut holds = self.holds.lock().map_err(|_| poisoned("budget hold"))?;
+        let entry = holds.entry(host.to_owned()).or_insert(until);
+        if *entry < until {
+            *entry = until;
+        }
+        Ok(())
+    }
+
+    /// When one more token will have accrued for `bucket`, or when the host's
+    /// hold ends — whichever is later in effect.
+    fn hint_at(&self, host: &str, bucket: &str, now: Instant) -> Duration {
+        let held_until = self
+            .holds
+            .lock()
+            .ok()
+            .and_then(|holds| holds.get(host).copied())
+            .filter(|until| *until > now);
+        if let Some(until) = held_until {
+            return until - now;
+        }
+
+        let Ok(buckets) = self.buckets.lock() else {
+            return self.pace(1.0);
+        };
+        let Some(state) = buckets.get(&bucket_key(host, bucket)) else {
+            return Duration::ZERO;
+        };
+        let elapsed = now.saturating_duration_since(state.last).as_secs_f64();
+        let tokens = (state.tokens + elapsed * self.rate_per_second).min(self.burst);
+        if tokens >= 1.0 {
+            return Duration::ZERO;
+        }
+        self.pace(1.0 - tokens)
+    }
+
+    /// How long `tokens` worth of requests take to accrue at the configured rate.
+    fn pace(&self, tokens: f64) -> Duration {
+        if self.rate_per_second <= 0.0 {
+            // A zero rate never refills; report the policy's floor so callers back
+            // off by a second instead of spinning on a zero delay.
+            return Duration::from_secs(1);
+        }
+        Duration::from_secs_f64(tokens / self.rate_per_second)
+    }
 }
 
 impl Budget for InMemoryBudget {
     fn acquire<'a>(
         &'a self,
         host: &'a str,
+        bucket: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<bool, CacheError>> + Send + 'a>> {
-        Box::pin(async move { self.acquire_at(host, Instant::now()) })
+        Box::pin(async move { self.acquire_at(host, bucket, Instant::now()) })
+    }
+
+    fn hold<'a>(
+        &'a self,
+        host: &'a str,
+        hold: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CacheError>> + Send + 'a>> {
+        Box::pin(async move { self.hold_at(host, hold, Instant::now()) })
+    }
+
+    fn retry_hint(&self, host: &str, bucket: &str) -> Duration {
+        self.hint_at(host, bucket, Instant::now())
     }
 }
 
@@ -332,18 +431,18 @@ mod tests {
         let start = Instant::now();
 
         for _ in 0..5 {
-            assert!(budget.acquire_at("example.social", start)?);
+            assert!(budget.acquire_at("example.social", "token", start)?);
         }
-        assert!(!budget.acquire_at("example.social", start)?);
+        assert!(!budget.acquire_at("example.social", "token", start)?);
 
         // Exactly one token has accrued after one second, and taking it resets
         // the clock for the next.
         let later = start + Duration::from_secs(1);
-        assert!(budget.acquire_at("example.social", later)?);
-        assert!(!budget.acquire_at("example.social", later)?);
+        assert!(budget.acquire_at("example.social", "token", later)?);
+        assert!(!budget.acquire_at("example.social", "token", later)?);
 
         // Buckets are per host, not global.
-        assert!(budget.acquire_at("other.social", start)?);
+        assert!(budget.acquire_at("other.social", "token", start)?);
         Ok(())
     }
 
@@ -352,14 +451,36 @@ mod tests {
         let budget = InMemoryBudget::new(2, 2);
         let start = Instant::now();
 
-        assert!(budget.acquire_at("example.social", start)?);
-        assert!(budget.acquire_at("example.social", start)?);
-        assert!(!budget.acquire_at("example.social", start)?);
+        assert!(budget.acquire_at("example.social", "token", start)?);
+        assert!(budget.acquire_at("example.social", "token", start)?);
+        assert!(!budget.acquire_at("example.social", "token", start)?);
 
         // Two tokens per second means one token after 500 ms.
         let half = start + Duration::from_millis(500);
-        assert!(budget.acquire_at("example.social", half)?);
-        assert!(!budget.acquire_at("example.social", half)?);
+        assert!(budget.acquire_at("example.social", "token", half)?);
+        assert!(!budget.acquire_at("example.social", "token", half)?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_hold_refuses_every_bucket_on_the_host_until_it_expires() -> Result<(), CacheError> {
+        let budget = InMemoryBudget::new(1, 5);
+        let start = Instant::now();
+        budget.hold_at("example.social", Duration::from_secs(30), start)?;
+
+        assert!(!budget.acquire_at("example.social", "token-a", start)?);
+        assert!(!budget.acquire_at("example.social", "token-b", start)?);
+        // Another host is unaffected.
+        assert!(budget.acquire_at("other.social", "token-a", start)?);
+
+        // The hold ends when the instance said it would, and the refusal above
+        // did not consume the bucket.
+        let later = start + Duration::from_secs(30);
+        assert!(budget.acquire_at("example.social", "token-a", later)?);
+        assert_eq!(
+            budget.hint_at("example.social", "token-a", start),
+            Duration::from_secs(30)
+        );
         Ok(())
     }
 

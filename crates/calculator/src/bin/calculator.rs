@@ -87,6 +87,23 @@ async fn main() -> ExitCode {
 
     info!(worker = %config.worker_id, kinds = ?config.kinds, "starting nodus-calculator");
     let sync = SyncConfig::new(sealer, config.max_rps_per_host);
+    // One budget for the process, shared through Redis when it is configured: the
+    // per-host rate belongs to the instance we crawl, not to a replica. `validate`
+    // already refused a replica count above one without Redis.
+    let rate = sync.budget_rate();
+    let sync = if let Some(url) = config.redis_url.as_deref() {
+        match nodus_cache::RedisBudget::connect(url, rate).await {
+            Ok(budget) => sync.with_budget(std::sync::Arc::new(budget)),
+            Err(error) => {
+                error!(%error, "redis request budget is unusable");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        // `SyncUser` installs the in-process budget and warns once at startup that
+        // per-host budgets are per replica.
+        sync
+    };
     let worker = Worker::new(pool.clone(), Registry::standard(pool, sync), config);
 
     match worker.run(shutdown_signal()).await {

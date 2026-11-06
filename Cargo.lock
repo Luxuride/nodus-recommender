@@ -1274,6 +1274,7 @@ name = "nodus-calculator"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "nodus-cache",
  "nodus-core",
  "nodus-instance",
  "nodus-shared",

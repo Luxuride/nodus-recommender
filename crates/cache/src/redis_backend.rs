@@ -114,25 +114,41 @@ impl Cache for RedisCache {
     }
 }
 
-/// A [`Budget`] shared by all replicas, counted per host and per second.
+/// A [`Budget`] shared by all replicas, counted per host, token and second.
 ///
 /// This is intentionally not a token bucket. The shared version is one `INCR`
-/// against `budget:<host>:<unix-second>` with a two-second expiry, compared
-/// against the configured rate: cheap, atomic, and easy to reason about when
-/// something looks wrong in Redis. It is **approximate and deliberately simple**
-/// — a token bucket implemented as a Lua script is a later refinement, once
-/// there is evidence that the per-second window is too coarse. Until then the
-/// burst is effectively one second's worth of tokens, and a replica that sees a
-/// `false` answer reschedules rather than retries.
+/// against `budget:<host>:<bucket>:<unix-second>` with a two-second expiry,
+/// compared against the configured rate: cheap, atomic, and easy to reason about
+/// when something looks wrong in Redis. The caller names the bucket (the crawler
+/// passes a token fingerprint), so a spent token does not silence its siblings.
+/// It is **approximate and deliberately simple** — a token bucket implemented as a
+/// Lua script is a later refinement, once there is evidence that the per-second
+/// window is too coarse. Until then the burst is effectively one second's worth of
+/// tokens, and a replica that sees a `false` answer reschedules rather than
+/// retries.
+///
+/// A host-wide hold lives at `budget:<host>:hold` with a TTL, which is how an
+/// instance's `Retry-After` becomes state every replica respects. The acquire
+/// reads it first, so one `429` parks every token on that host, not just the one
+/// that received it — two round trips instead of one, in exchange for not walking
+/// into the same refusal.
 ///
 /// The two-second expiry (rather than one) tolerates clock skew and the moment
 /// between `INCR` and `EXPIRE`; a key that misses its expiry is bounded by
-/// hosts × seconds and is harmless. The 50%-of-reported-remaining rule is not
-/// enforced here because the headers are not visible to this type; the crawler
-/// applies it on top of the answer.
+/// hosts × buckets × seconds and is harmless. The 50%-of-reported-remaining rule
+/// is not enforced here because the headers are not visible to this type; the
+/// crawler applies it on top of the answer.
 pub struct RedisBudget {
     conn: ConnectionManager,
     rate_per_second: u64,
+}
+
+/// The longest a single `Retry-After` may park a host, mirroring the in-process
+/// budget's cap.
+const MAX_HOLD: Duration = Duration::from_secs(86_400);
+
+fn hold_key(host: &str) -> String {
+    format!("budget:{host}:hold")
 }
 
 impl fmt::Debug for RedisBudget {
@@ -170,16 +186,23 @@ impl Budget for RedisBudget {
     fn acquire<'a>(
         &'a self,
         host: &'a str,
+        bucket: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<bool, CacheError>> + Send + 'a>> {
         Box::pin(async move {
             let mut conn = self.conn.clone();
+            // A live hold refuses every token on the host; checking it first is
+            // what makes one `Retry-After` apply to the whole pool.
+            let held: Option<u8> = conn.get(hold_key(host)).await?;
+            if held.is_some() {
+                return Ok(false);
+            }
             // A clock before the epoch is not worth failing a request over;
             // the second bucket would just be wrong for one tick.
             let second = match SystemTime::now().duration_since(UNIX_EPOCH) {
                 Ok(elapsed) => elapsed.as_secs(),
                 Err(_) => 0,
             };
-            let key = format!("budget:{host}:{second}");
+            let key = format!("budget:{host}:{bucket}:{second}");
             let count: u64 = conn.incr(&key, 1i64).await?;
             if count == 1 {
                 // Only the first request in this second needs to set the TTL;
@@ -188,5 +211,25 @@ impl Budget for RedisBudget {
             }
             Ok(count <= self.rate_per_second)
         })
+    }
+
+    fn hold<'a>(
+        &'a self,
+        host: &'a str,
+        hold: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CacheError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut conn = self.conn.clone();
+            let seconds = hold.min(MAX_HOLD).as_secs().max(1);
+            let _: () = conn.set_ex(hold_key(host), 1_u8, seconds).await?;
+            Ok(())
+        })
+    }
+
+    fn retry_hint(&self, _host: &str, _bucket: &str) -> Duration {
+        // Redis cannot answer this without another round trip, and the caller only
+        // needs a floor that keeps a refused job from spinning.
+        let rate = u32::try_from(self.rate_per_second.max(1)).unwrap_or(u32::MAX);
+        Duration::from_secs(1) / rate
     }
 }
