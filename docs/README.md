@@ -38,6 +38,7 @@ Nodus/            ← superproject: .devcontainer, .gitmodules, README
 | [09-operations.md](09-operations.md) | Config, migrations, observability, local dev, runbook |
 | [10-roadmap.md](10-roadmap.md) | Milestones and what "done" means for each |
 | [11-trademark.md](11-trademark.md) | Naming rules that keep the Mastodon mark out of our identity |
+| [12-literature.md](12-literature.md) | papers behind the ranking and similarity design, and the ones that say our approach will fail |
 | [decisions.md](decisions.md) | Decision log: choice, alternatives, rationale |
 
 The SDK — wire contract, client state machine, versioning and pinning rules — is
