@@ -48,6 +48,26 @@ impl NewJob {
     }
 }
 
+impl NewJob {
+    /// A job for `kind`, with everything spelled out.
+    #[must_use]
+    pub fn pending(
+        kind: &str,
+        priority: i16,
+        subject_kind: &str,
+        subject_id: Option<String>,
+    ) -> Self {
+        Self {
+            kind: kind.to_owned(),
+            priority,
+            subject_kind: subject_kind.to_owned(),
+            subject_id,
+            payload: serde_json::Value::Null,
+            run_after: None,
+        }
+    }
+}
+
 /// Enqueue a job unless an equivalent one is already outstanding.
 ///
 /// Returns the new job id, or `None` when an outstanding job for the same subject

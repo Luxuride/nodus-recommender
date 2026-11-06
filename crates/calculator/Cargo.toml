@@ -13,7 +13,7 @@ workspace = true
 
 [dependencies]
 nodus-core = { workspace = true }
-nodus-instance = { workspace = true }
+nodus-instance = { workspace = true, features = ["native"] }
 nodus-shared = { workspace = true }
 nodus-store = { workspace = true }
 futures = { workspace = true }
@@ -24,7 +24,12 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
 
 [[bin]]
 name = "nodus-calculator"
 path = "src/bin/calculator.rs"
+[dev-dependencies]
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+wiremock = "0.6"

@@ -23,6 +23,7 @@
 
 use std::process::ExitCode;
 
+use nodus_calculator::handlers::SyncConfig;
 use nodus_calculator::{Config, Registry, Worker};
 use nodus_store::{connect_and_migrate, crypto::TokenSealer};
 use tokio::signal;
@@ -45,18 +46,21 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    // The calculator opens tokens that feeds sealed. Creating the sealer here is a
+    // The calculator opens tokens that feeds sealed. Building the sealer here is a
     // boot check: a deployment that forgot `TOKEN_ENC_KEY` fails now, not on the
-    // first P0 sync.
-    if let Ok(encoded) = std::env::var("TOKEN_ENC_KEY") {
-        match TokenSealer::from_base64(&encoded) {
-            Ok(_) => {}
-            Err(error) => {
-                error!(%error, "TOKEN_ENC_KEY is not a usable sealing key");
-                return ExitCode::FAILURE;
-            }
+    // first P0 sync. Without it the worker could still drain non-sync tiers, but a
+    // half-configured calculator is a worse surprise than a failed rollout.
+    let Ok(encoded) = std::env::var("TOKEN_ENC_KEY") else {
+        error!("TOKEN_ENC_KEY is not set; the calculator cannot sync any user");
+        return ExitCode::FAILURE;
+    };
+    let sealer = match TokenSealer::from_base64(&encoded) {
+        Ok(sealer) => std::sync::Arc::new(sealer),
+        Err(error) => {
+            error!(%error, "TOKEN_ENC_KEY is not a usable sealing key");
+            return ExitCode::FAILURE;
         }
-    }
+    };
 
     // Ten seconds is generous for a private-network primary and short enough that a
     // wrong hostname fails the boot instead of hanging a rollout.
@@ -82,7 +86,8 @@ async fn main() -> ExitCode {
     }
 
     info!(worker = %config.worker_id, kinds = ?config.kinds, "starting nodus-calculator");
-    let worker = Worker::new(pool, Registry::standard(), config);
+    let sync = SyncConfig::new(sealer, config.max_rps_per_host);
+    let worker = Worker::new(pool.clone(), Registry::standard(pool, sync), config);
 
     match worker.run(shutdown_signal()).await {
         Ok(()) => {

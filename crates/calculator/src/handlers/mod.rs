@@ -25,7 +25,7 @@ use nodus_store::models::Job;
 
 mod sync_user;
 
-pub use sync_user::SyncUser;
+pub use sync_user::{SyncConfig, SyncUser};
 
 /// The outcome of one attempt, when it is not success.
 #[derive(Debug)]
@@ -158,14 +158,13 @@ impl Registry {
 
     /// The registry this build actually runs with.
     ///
-    /// Every kind currently lands here as `Permanent`: the loop, the claiming and
-    /// the failure accounting are real, the network side is the next commit. A job
-    /// that reaches an unregistered kind fails visibly instead of being retried
-    /// forever or, worse, completed without doing anything.
+    /// A kind with no handler fails visibly (`no handler registered`) instead of
+    /// being retried forever or, worse, completed without doing anything — which is
+    /// what lets the roadmap claim "the queue serves these kinds" honestly.
     #[must_use]
-    pub fn standard() -> Self {
+    pub fn standard(pool: sqlx::PgPool, sync: SyncConfig) -> Self {
         let mut registry = Self::new();
-        registry.register(Arc::new(SyncUser::new()));
+        registry.register(Arc::new(SyncUser::new(pool, sync)));
         registry
     }
 

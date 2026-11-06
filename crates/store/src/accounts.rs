@@ -178,3 +178,32 @@ pub async fn record_engagement(
     .await?;
     Ok(())
 }
+
+/// Resolve local ids for a batch of instance accounts.
+///
+/// The crawl upserts accounts and then needs their local ids for `follow_edge`; one
+/// query for the batch rather than one per account keeps a 5 000-follow sync to a
+/// couple of round trips per page. Ids that are not in the table are simply absent
+/// from the result, which callers treat as "the upsert did not land" — a bug worth
+/// seeing rather than silently skipping.
+///
+/// # Errors
+///
+/// Propagates [`sqlx::Error`].
+pub async fn resolve_ids(
+    pool: &PgPool,
+    instance_host: &str,
+    mastodon_ids: &[i64],
+) -> Result<Vec<(i64, i64)>, sqlx::Error> {
+    if mastodon_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    sqlx::query_as::<_, (i64, i64)>(
+        "SELECT id, mastodon_id FROM account \
+         WHERE instance_host = $1 AND mastodon_id = ANY($2)",
+    )
+    .bind(instance_host)
+    .bind(mastodon_ids)
+    .fetch_all(pool)
+    .await
+}
