@@ -1,0 +1,45 @@
+---
+name: mastodon-reccom
+
+# Local development database for the recommendation service.
+# Run from the host or from the devcontainer:  docker compose up -d
+#
+# The devcontainer reaches this database at host.docker.internal:5432
+# (see containerEnv.DATABASE_URL in .devcontainer/devcontainer.json).
+# Schema lives in migrations/ and is applied by sqlx, never by init scripts.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mastodon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mastodon}
+      POSTGRES_DB: ${POSTGRES_DB:-mastodon}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    command:
+      - postgres
+      # Dev-sized: the recommendation store is read-mostly and small.
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - max_connections=100
+      - -c
+      - jit=off
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U ${POSTGRES_USER:-mastodon}
+          -d ${POSTGRES_DB:-mastodon}
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres-data:
