@@ -12,12 +12,17 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+axum = { workspace = true }
 nodus-core = { workspace = true }
 nodus-shared = { workspace = true }
 nodus-store = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tower-http = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }

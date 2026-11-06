@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.85"
 license = "AGPL-3.0-or-later"
 publish = false
-repository = "https://github.com/luxuride/nodus-backend"
+repository = "https://github.com/luxuride/nodus-recommender"
 
 # Shared with the web client. The SDK checkout is the `sdk` submodule of the
 # superproject, so a path dependency plus the superproject's gitlink pin one
@@ -24,10 +24,30 @@ nodus-ingest = { path = "crates/ingest", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net", "sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = "2"
+
+# HTTP surface.
+axum = { version = "0.8", features = ["macros"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "limit"] }
+
+# Postgres. No TLS feature on purpose: local development and the single-node
+# deployment talk to Postgres over a private network, and the TLS feature set
+# pulls a crypto ring we do not otherwise need. Add it together with a
+# connection string that requires it.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "postgres",
+    "migrate",
+    "macros",
+    "json",
+    "time",
+    "uuid",
+] }
+time = { version = "0.3", features = ["serde", "macros", "formatting"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
