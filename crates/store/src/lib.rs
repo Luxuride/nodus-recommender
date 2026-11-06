@@ -24,6 +24,7 @@
 #![forbid(unsafe_code)]
 
 pub mod accounts;
+pub mod affinity;
 pub mod crypto;
 pub mod events;
 pub mod export;
@@ -31,6 +32,7 @@ pub mod feed;
 pub mod jobs;
 pub mod models;
 pub mod retention;
+pub mod similarity;
 pub mod users;
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
