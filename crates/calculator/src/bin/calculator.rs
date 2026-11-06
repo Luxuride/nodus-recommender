@@ -12,6 +12,6 @@
 #![forbid(unsafe_code)]
 
 fn main() {
-    println!("nodus-sync {}", env!("CARGO_PKG_VERSION"));
+    println!("nodus-calculator {}", env!("CARGO_PKG_VERSION"));
     println!("No worker implemented yet — see docs/04-ingestion.md.");
 }

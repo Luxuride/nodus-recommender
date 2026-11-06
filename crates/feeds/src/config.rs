@@ -8,6 +8,8 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
+use crate::crypto::TokenSealer;
+
 /// Everything the service needs to know to run.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -27,6 +29,9 @@ pub struct Config {
     pub max_connections: u32,
     /// How long to wait for Postgres on the first connection before giving up.
     pub connect_timeout: Duration,
+    /// Key used to encrypt stored instance tokens. Absent when sync is disabled, so a
+    /// deployment that never stores a token never has the means to store one.
+    pub token_enc_key: Option<TokenSealer>,
 }
 
 /// Why configuration could not be read.
@@ -81,6 +86,18 @@ impl Config {
             })
             .transpose()?
             .unwrap_or(10);
+        let token_enc_key = match optional("TOKEN_ENC_KEY") {
+            Some(raw) => {
+                Some(
+                    TokenSealer::from_base64(&raw).map_err(|e| ConfigError::Invalid {
+                        name: "TOKEN_ENC_KEY",
+                        reason: e.to_string(),
+                    })?,
+                )
+            }
+            None if sync_enabled => return Err(ConfigError::Missing("TOKEN_ENC_KEY")),
+            None => None,
+        };
         Ok(Self {
             database_url,
             listen_addr,
@@ -89,6 +106,7 @@ impl Config {
             sync_enabled,
             max_connections,
             connect_timeout: Duration::from_secs(10),
+            token_enc_key,
         })
     }
 }

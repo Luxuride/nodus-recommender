@@ -13,7 +13,6 @@ use nodus_shared::{ApiError as WireError, ApiErrorBody};
 
 /// Everything a handler may fail with.
 #[derive(Debug, thiserror::Error)]
-#[expect(dead_code, reason = "the feed and sync routes land in the next commit")]
 pub enum ApiError {
     /// The request is well-formed but semantically wrong.
     #[error("{message}")]
@@ -30,6 +29,10 @@ pub enum ApiError {
     #[error("not found")]
     NotFound,
     /// The client speaks a contract this build no longer honours.
+    #[expect(
+        dead_code,
+        reason = "raised when the contract gate reads X-Contract-Version"
+    )]
     #[error("client contract {client} is older than {min}")]
     ClientTooOld {
         /// Contract version the client announced.
@@ -67,8 +70,25 @@ impl From<sqlx::Error> for ApiError {
     }
 }
 
-#[expect(dead_code, reason = "the feed and sync routes land in the next commit")]
 impl ApiError {
+    /// A request we understood and refuse.
+    #[must_use]
+    pub fn bad_request(code: &'static str, message: impl Into<String>) -> Self {
+        Self::BadRequest {
+            code,
+            message: message.into(),
+        }
+    }
+
+    /// A dependency that is temporarily unable to serve.
+    #[must_use]
+    pub const fn unavailable(code: &'static str, retry_after_s: u32) -> Self {
+        Self::Unavailable {
+            code,
+            retry_after_s: Some(retry_after_s),
+        }
+    }
+
     /// Stable code for the envelope.
     #[must_use]
     pub fn code(&self) -> &'static str {

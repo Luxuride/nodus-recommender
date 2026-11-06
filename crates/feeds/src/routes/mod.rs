@@ -7,6 +7,7 @@
 
 pub mod health;
 pub mod meta;
+pub mod sync;
 
 use crate::state::AppState;
 use axum::Router;
@@ -25,6 +26,14 @@ pub fn router(state: AppState) -> Router {
         .route("/healthz", axum::routing::get(health::healthz))
         .route("/readyz", axum::routing::get(health::readyz))
         .route("/api/v1/meta", axum::routing::get(meta::meta))
+        .route(
+            "/api/v1/me",
+            axum::routing::get(sync::get_me).delete(sync::delete_me),
+        )
+        .route(
+            "/api/v1/sync/token",
+            axum::routing::put(sync::put_sync_token).delete(sync::delete_sync_token),
+        )
         .layer(cors(&state))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

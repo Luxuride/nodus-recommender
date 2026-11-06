@@ -1,5 +1,5 @@
 [package]
-name = "nodus-ingest"
+name = "nodus-calculator"
 description = "Fediverse data ingestion: background sync, job queue, rate limiting"
 version.workspace = true
 edition.workspace = true
@@ -22,5 +22,5 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 
 [[bin]]
-name = "nodus-sync"
-path = "src/bin/sync.rs"
+name = "nodus-calculator"
+path = "src/bin/calculator.rs"

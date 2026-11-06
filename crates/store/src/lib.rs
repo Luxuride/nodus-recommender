@@ -1,9 +1,12 @@
 //! Persistence for the nodus recommendation service.
 //!
-//! This crate is the only place that speaks SQL. Everything above it (`nodus-api`,
-//! `nodus-ingest`) works with the plain Rust rows in [`models`] and the functions in
+//! This crate is the only place that speaks SQL. Everything above it (`nodus-feeds`,
+//! `nodus-calculator`) works with the plain Rust rows in [`models`] and the functions in
 //! [`users`], [`accounts`] and [`jobs`], so a query plan can be changed without
 //! touching business logic — and a business rule can be read without reading SQL.
+//! [`retention`] and [`export`] are the two ends of the data lifecycle: the batched
+//! deletes that keep the tables inside their size budget, and the per-user document
+//! that hands a person everything we still hold.
 //!
 //! Two conventions matter throughout:
 //!
@@ -21,8 +24,10 @@
 #![forbid(unsafe_code)]
 
 pub mod accounts;
+pub mod export;
 pub mod jobs;
 pub mod models;
+pub mod retention;
 pub mod users;
 
 use sqlx::postgres::{PgPool, PgPoolOptions};

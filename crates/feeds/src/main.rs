@@ -7,7 +7,9 @@
 
 #![forbid(unsafe_code)]
 
+mod auth;
 mod config;
+mod crypto;
 mod error;
 mod routes;
 mod state;
@@ -24,7 +26,7 @@ async fn main() -> ExitCode {
     match run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            tracing::error!(%error, "nodus-api stopped");
+            tracing::error!(%error, "nodus-feeds stopped");
             ExitCode::FAILURE
         }
     }
@@ -38,7 +40,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         origins = config.web_origins.len(),
         sync_enabled = config.sync_enabled,
         public_base_url = %config.public_base_url,
-        "starting nodus-api"
+        "starting nodus-feeds"
     );
 
     let pool = nodus_store::connect_and_migrate(
@@ -97,7 +99,7 @@ async fn shutdown_signal() {
 /// every statement buries the request line it belongs to.
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,nodus_api=debug,sqlx=warn"));
+        .unwrap_or_else(|_| EnvFilter::new("info,nodus_feeds=debug,sqlx=warn"));
     let builder = tracing_subscriber::fmt().with_env_filter(filter);
     if std::env::var("LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json")) {
         builder.json().init();
