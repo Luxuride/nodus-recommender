@@ -29,7 +29,7 @@ timestamps. Errors use a single shape:
 **Bearer Mastodon access token. No sessions, no cookies, no OAuth endpoints of
 our own.** The client obtains the token itself (dynamic app registration + PKCE
 against its instance, token in IndexedDB — see
-[08-frontend.md](08-frontend.md)) and presents it on every call:
+[08-sdk.md](08-sdk.md)) and presents it on every call:
 
 ```http
 Authorization: Bearer <mastodon_access_token>
