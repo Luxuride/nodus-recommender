@@ -16,6 +16,7 @@ use crate::state::AppState;
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
+use nodus_core::drift;
 use nodus_core::ranking::{self, CandidateSignals, RankingWeights};
 use nodus_shared::{
     AccountFeed, AccountItem, CONTRACT_VERSION, FeedAccount, MIN_CONTRACT_VERSION, Reason,
@@ -216,9 +217,28 @@ fn score(candidate: &Candidate, weights: RankingWeights, home: &str) -> f64 {
             language_match: false,
             seen_count_7d: 0,
             dismissed: false,
+            // A candidate is by definition not followed yet, so there is no follow
+            // edge to age; the taste decay applies to the affinity the calculator
+            // already aged, not a second time here.
+            follow_age_days: None,
+            stability: drift::Stability {
+                shown_age_days: candidate.last_shown_at.map(shown_age_days),
+                previous_rank: None,
+            },
+            // Lift needs an expected follow rate per account, which the calculator
+            // does not produce yet; 1.0 leaves the term neutral.
+            popularity_lift: 1.0,
         },
         weights,
     )
+}
+
+/// How long ago an account was last shown to this user, in fractional days.
+///
+/// A reminder that `served_at` can be in the future after a clock change, and a
+/// negative age would turn into a stability bonus larger than the weight allows.
+fn shown_age_days(served_at: OffsetDateTime) -> f64 {
+    ((OffsetDateTime::now_utc() - served_at).as_seconds_f64() / 86_400.0).max(0.0)
 }
 
 /// The reason shown to the user, derived from which sources produced the candidate.

@@ -15,15 +15,23 @@ Two surfaces rank differently:
 ## Account ranking
 
 ```text
-score(u,c) =  w_sim      · normalize(affinity[u,c], 0, 1)
+score(u,c) =  w_sim      · affinity[u,c] · taste_factor(u,c) · popularity_lift(c)
             + w_support  · log1p(support[c]) / log1p(50)
             + w_eng      · engagement_prior(c)
             + w_fresh    · activity_recency(c)          -- exp(-age_days / 30)
             + w_local    · (c.instance_host = u.instance_host)
             + w_lang     · (u.languages ∩ c.languages ≠ ∅)
+            + w_stable   · stability_bonus(u,c)          -- exp(-shown_age_days / 7), capped
             − w_fatigue  · seen_count(u,c, 7d)
             − w_dismiss  · dismissed(u,c)
 ```
+
+`taste_factor` is `1 − w_taste · (1 − exp(−follow_age_days / 180))`: taste decays
+with a 180-day constant, and `w_taste` decides how much of that decay survives into
+the score. `popularity_lift` is `clamp(follow_rate / expected_rate, 0.25, 4.0)` and
+replaces plain follower-count damping as the ordering signal (see
+[12-literature.md](12-literature.md): dividing by what *our* users do beats
+dividing by how famous an account is).
 
 | Weight | Initial value | Meaning |
 | --- | --- | --- |
@@ -34,11 +42,30 @@ score(u,c) =  w_sim      · normalize(affinity[u,c], 0, 1)
 | `w_local` | 0.10 | mild home-instance preference: following locally is cheaper socially and technically |
 | `w_lang` | 0.10 | only when the user's language is known and the candidate's posts are in it |
 | `w_fatigue` | 0.30 | repeated exposure without interaction is a negative signal |
+| `w_taste` | 0.20 | how much a stale follow weakens the graph evidence behind a candidate |
+| `w_stable` | 0.15 | hysteresis: an account shown in the last week keeps a small bonus, so the list does not reshuffle under a reader |
 | `w_dismiss` | 2.00 | explicit "not interested" — effectively excludes the account |
 
 Weights are seeded from intuition, then learned (below). Values live in
 `model_version.weights`; the active row is read once per request and cached for
 60 s.
+
+### Consistency and drift
+
+A recommender that changes its mind every refresh reads as unreliable even when
+each individual change is defensible; one that never changes its mind stops
+matching the person using it. Two terms hold both halves:
+
+- **Taste decay** (`TASTE_TAU_DAYS = 180`) ages the *evidence*. A follow from
+  three years ago is a weaker statement about who you are now than one from last
+  month, so the graph score behind a candidate fades with the age of the follows
+  that produced it. `recency_weight` clamps at 1.0 for negative ages, because a
+  clock skew must never *boost* a signal.
+- **Stability hysteresis** (`STABILITY_TAU_DAYS = 7`, capped at `w_stable`) buys
+  *continuity* in the visible list: something shown yesterday gets a small bonus,
+  so equal-score candidates do not swap places every thirty seconds. It is
+  bounded on purpose — hysteresis that can outvote evidence becomes stickiness,
+  which is how a feed ends up recommending the same five accounts for a year.
 
 ### Diversity
 

@@ -15,6 +15,7 @@
 
 pub mod damping;
 pub mod diversity;
+pub mod drift;
 pub mod idf;
 pub mod labels;
 pub mod post;
@@ -22,9 +23,12 @@ pub mod ranking;
 pub mod similarity;
 pub mod weighted_set;
 
-pub use damping::{AFFINITY_DAMPING, damp_popularity};
+pub use damping::{AFFINITY_DAMPING, LIFT_CEIL, LIFT_FLOOR, damp_popularity, popularity_lift};
 pub use diversity::{
     Diversifiable, EXPLORE_RATE, INSTANCE_WINDOW, MAX_PER_INSTANCE, MMR_LAMBDA, mmr_select,
+};
+pub use drift::{
+    STABILITY_TAU_DAYS, Stability, TASTE_TAU_DAYS, recency_weight, stability_bonus, weighted_follow,
 };
 pub use idf::{follow_weight, status_weight, target_weight};
 pub use labels::{EventKind, label};

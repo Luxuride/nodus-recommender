@@ -27,6 +27,12 @@ pub struct Candidate {
     pub sources: Vec<String>,
     /// When the affinity was computed.
     pub computed_at: OffsetDateTime,
+    /// When this user was last shown this account, if ever.
+    ///
+    /// Feeds the stability term: an account the user saw an hour ago keeps a
+    /// small bonus, so a refresh does not reshuffle a list the user is still
+    /// reading. `None` means never shown, which earns no bonus.
+    pub last_shown_at: Option<OffsetDateTime>,
     /// `user` or `user@host`.
     pub acct: String,
     /// Display name, when the account set one.
@@ -69,11 +75,17 @@ pub async fn candidates(
              WHERE u.id = $1 \
          ) \
          SELECT af.account_id, af.affinity::float8 AS affinity, af.support, af.sources, \
-             af.computed_at, a.acct::text AS acct, a.display_name, a.note, a.avatar_url, \
-             a.followers_count, a.bot, a.last_status_at, a.instance_host::text AS instance_host \
+             af.computed_at, shown.served_at AS last_shown_at, a.acct::text AS acct, \
+             a.display_name, a.note, a.avatar_url, a.followers_count, a.bot, \
+             a.last_status_at, a.instance_host::text AS instance_host \
          FROM account_affinity af \
          JOIN account a ON a.id = af.account_id \
          LEFT JOIN me ON true \
+         LEFT JOIN LATERAL ( \
+             SELECT ri.served_at FROM recommendation_item ri \
+             WHERE ri.user_id = $1 AND ri.account_id = af.account_id \
+             ORDER BY ri.served_at DESC LIMIT 1 \
+         ) AS shown ON true \
          WHERE af.user_id = $1 \
              AND af.expires_at > now() \
              AND a.moved_to_account_id IS NULL \
@@ -264,6 +276,7 @@ mod tests {
             support: 2,
             sources: vec!["similar_user".to_owned()],
             computed_at: OffsetDateTime::UNIX_EPOCH,
+            last_shown_at: None,
             acct: "a@b".to_owned(),
             display_name: None,
             note: None,
