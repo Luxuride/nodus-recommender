@@ -13,7 +13,8 @@ workspace = true
 
 [dependencies]
 nodus-core = { workspace = true }
-nodus-instance = { workspace = true, features = ["native"] }
+nodus-instance-api = { workspace = true }
+nodus-instance-rest = { workspace = true, features = ["native"] }
 nodus-shared = { workspace = true }
 nodus-store = { workspace = true }
 nodus-cache = { workspace = true, features = ["redis"] }
