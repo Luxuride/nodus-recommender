@@ -1,0 +1,9 @@
+# Context is the superproject root (see the Dockerfile header). `web` is not needed to
+# build either recommender binary, and neither is any build output or git metadata.
+**/target
+**/dist
+web
+.git
+**/*.md
+**/.env
+**/.env.*

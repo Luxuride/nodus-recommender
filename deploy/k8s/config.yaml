@@ -1,0 +1,15 @@
+---
+# What both roles need and neither should have to be redeployed to change.
+#
+# Everything without a secret in it lives here; `nodus-secrets` (see
+# `secret.example.yaml`) holds the database URL and the token key.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nodus-config
+  namespace: nodus
+data:
+  # Exact origins, comma separated. The client is served from a CDN, so an
+  # allowlist of one wildcard would undo the CSP story in
+  # `docs/08-privacy.md`.
+  web-origins: "https://nodus.example"

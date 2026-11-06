@@ -1,0 +1,110 @@
+---
+# The heavy role: walks follow graphs, computes similarity and writes
+# derived state.
+#
+# Running more than one replica is safe only because per-host request
+# budgets live in Redis. The service refuses to start with
+# CALCULATOR_REPLICAS > 1 and no REDIS_URL rather than quietly
+# multiplying the traffic it sends to every instance.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calculator
+  namespace: nodus
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: calculator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: calculator
+        app.kubernetes.io/part-of: nodus
+    spec:
+      # A job in flight is not worth killing for a rolling update: claims
+      # are leased, so the replacement replica picks the work up when the
+      # lease expires. Waiting is cheaper than re-crawling a graph.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: calculator
+          image: ghcr.io/luxuride/nodus-recommender:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BINARY
+              value: nodus-calculator
+            - name: CALCULATOR_DB_MAX_CONNECTIONS
+              value: "4"
+            - name: CALCULATOR_BATCH_SIZE
+              value: "8"
+            - name: CALCULATOR_LEASE_SECONDS
+              value: "600"
+            - name: CALCULATOR_REPLICAS
+              value: "1"
+            - name: RUST_LOG
+              value: info,nodus_calculator=debug,sqlx=warn
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nodus-secrets
+                  key: database-url
+            - name: TOKEN_ENC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nodus-secrets
+                  key: token-enc-key
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+# No Service and no probes: the calculator serves nothing, so nothing can
+# probe it. Its health signal is the job backlog (see
+# `docs/09-operations.md`), not an HTTP endpoint — a replica that is alive
+# but making no progress is the failure worth alerting on.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: calculator
+  namespace: nodus
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: calculator
+  minReplicas: 1
+  maxReplicas: 8
+  metrics:
+    # Queue depth, not CPU: a replica waiting on a 1 req/s instance is idle
+    # by CPU and saturated in the only sense that matters. The metric comes
+    # from `nodus_jobs_pending{priority}`, exported by a scrape adapter or
+    # KEDA.
+    - type: External
+      external:
+        metric:
+          name: nodus_jobs_pending
+        target:
+          type: AverageValue
+          averageValue: "500"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600

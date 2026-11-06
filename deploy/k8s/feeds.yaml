@@ -1,0 +1,137 @@
+---
+# The read-heavy role: one indexed query plus arithmetic per
+# request, no background work.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feeds
+  namespace: nodus
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: feeds
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: feeds
+        app.kubernetes.io/part-of: nodus
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: feeds
+          image: ghcr.io/luxuride/nodus-recommender:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BINARY
+              value: nodus-feeds
+            - name: LISTEN_ADDR
+              value: 0.0.0.0:3000
+            - name: FEEDS_DB_MAX_CONNECTIONS
+              value: "10"
+            - name: RUST_LOG
+              value: info,nodus_feeds=info,sqlx=warn
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nodus-secrets
+                  key: database-url
+            - name: TOKEN_ENC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nodus-secrets
+                  key: token-enc-key
+            - name: WEB_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: nodus-config
+                  key: web-origins
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: feeds
+  namespace: nodus
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: feeds
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Availability first: the API is what the browser talks to, so it
+# scales on its own latency rather than on the cluster's CPU
+# average, and it never loses a pod mid-request.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: feeds
+  namespace: nodus
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: feeds
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: feeds
+  namespace: nodus
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: feeds
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300

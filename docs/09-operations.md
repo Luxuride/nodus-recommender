@@ -81,6 +81,20 @@ with the offending key named.
 - CI runs `sqlx migrate run` against an empty database and against the last
   production dump's schema, and fails if the two diverge.
 
+## Container image
+
+One image, two roles: `BINARY=nodus-feeds` or `BINARY=nodus-calculator`. The build context
+is the **superproject**, because the service depends on the SDK by path:
+
+```sh
+docker build -f recommender/Dockerfile -t nodus-recommender .
+```
+
+`recommender/Dockerfile.dockerignore` keeps `web/`, `target/` and git metadata out of the
+context. Manifests for Kubernetes live in `recommender/deploy/k8s` (kustomize) with a
+`deploy/README.md` explaining what is deliberately absent — Redis, Postgres and ingress
+are deployment-specific.
+
 ## Deployment topology
 
 ```text
