@@ -1,6 +1,6 @@
-# 12 — Naming and trademarks
+# 11 — Naming and trademarks
 
-Status: draft · Last revised: 2026-11-06 (decision D15)
+Status: revision 1 · Last revised: 2026-11-06 (decision D15)
 
 Mastodon is a registered trademark of Mastodon GmbH, and the licence on their
 software does not grant a licence to their marks. This project therefore keeps

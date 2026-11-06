@@ -1,6 +1,6 @@
-# 11 — Roadmap
+# 10 — Roadmap
 
-Status: draft · Last revised: 2026-11-06
+Status: revision 1 · Last revised: 2026-11-06
 
 Ordered by risk retired, not by feature count. Each milestone has an exit
 criterion that can be checked by running something, and each ends in a tagged
@@ -11,11 +11,11 @@ release of the repositories it touches.
 The design above, plus the client doc set in `web/docs/`.
 
 **Exit:** every open question in [README.md](README.md) is either answered or
-explicitly deferred; `contract`, `backend` and `web` repositories exist with
+explicitly deferred; `contract`, `recommender` and `web` repositories exist with
 their scaffolds building; `cargo clippy -D warnings` and `trunk build --release`
 are green in CI.
 
-## M1 — Contract v0.1 + backend skeleton
+## M1 — Contract v0.1 + recommender skeleton
 
 Scope: `nodus-store` migrations for the tables in
 [03-data-model.md](03-data-model.md) (minus `status` and `model_version`),
@@ -78,7 +78,7 @@ keyboard shortcuts, i18n, follow requests, drafts, PWA.
 
 ## M6 — Operability
 
-Scope: dashboards and alerts from [10-operations.md](10-operations.md), restore
+Scope: dashboards and alerts from [09-operations.md](09-operations.md), restore
 drill executed and written down, deletion job verified end-to-end (export →
 delete → purge → `purge_token_total`), contract `min_contract` actually raised
 once with metric evidence, `cargo deny` and dependency review in every repo.

@@ -1,6 +1,6 @@
-# 10 — Operations
+# 09 — Operations
 
-Status: draft · Last revised: 2026-11-06
+Status: revision 1 · Last revised: 2026-11-06
 
 ## Local development
 
@@ -10,7 +10,7 @@ Three repositories, one container:
 Nodus/
 ├── .devcontainer/           rust + wasm32 + trunk + docker (shared host daemon)
 ├── sdk/
-├── backend/                 compose.yml here (Postgres)
+├── recommender/                 compose.yml here (Postgres)
 └── web/
 ```
 
@@ -24,18 +24,18 @@ rustup target add wasm32-unknown-unknown
 trunk --version
 
 # database
-docker compose -f backend/compose.yml up -d
-docker compose -f backend/compose.yml exec postgres psql -U mastodon -c '\dx'
+docker compose -f recommender/compose.yml up -d
+docker compose -f recommender/compose.yml exec postgres psql -U mastodon -c '\dx'
 
-# backend
-cd backend && cargo run --bin nodus-api
-cd backend && cargo run --bin nodus-sync
+# recommender
+cd recommender && cargo run --bin nodus-api
+cd recommender && cargo run --bin nodus-sync
 
 # web (proxy /api → localhost:3000)
 cd web && trunk serve --port 8080
 ```
 
-Tests: `cargo test --workspace` in `contract` and `backend`; `trunk build
+Tests: `cargo test --workspace` in `contract` and `recommender`; `trunk build
 --release` plus the Playwright suite in `web`. Integration tests that need the
 database use `sqlx::test` against the compose Postgres, with one database per
 test.
@@ -67,7 +67,7 @@ with the offending key named.
 
 ## Migrations
 
-`backend/migrations/*.sql`, applied with `sqlx migrate run`. Rules:
+`recommender/migrations/*.sql`, applied with `sqlx migrate run`. Rules:
 
 - migrations are append-only once merged; a mistake is fixed by a new migration;
 - every migration is safe to run on a live database (no long locks: add columns
@@ -97,11 +97,11 @@ version is part of the image.
 
 | Repo | Jobs |
 | --- | --- |
-| `contract` | fmt, clippy `-D warnings`, test, `cargo build --target wasm32-unknown-unknown`, compatibility build of `backend@main` and `web@main` against the working tree, tag on merge to `main` when `CONTRACT_VERSION` changed |
-| `backend` | fmt, clippy, test (with Postgres service), `sqlx migrate run` on empty DB + last dump schema, build image, `cargo deny` |
+| `contract` | fmt, clippy `-D warnings`, test, `cargo build --target wasm32-unknown-unknown`, compatibility build of `recommender@main` and `web@main` against the working tree, tag on merge to `main` when `CONTRACT_VERSION` changed |
+| `recommender` | fmt, clippy, test (with Postgres service), `sqlx migrate run` on empty DB + last dump schema, build image, `cargo deny` |
 | `web` | fmt, clippy `--target wasm32`, `trunk build --release`, wasm size budget check, Playwright against the mock instance, `cargo deny` |
 
-Nightly in `backend` and `web`: build against the **latest contract tag** so pin
+Nightly in `recommender` and `web`: build against the **latest contract tag** so pin
 drift is discovered by the schedule rather than by a release.
 
 ## Observability

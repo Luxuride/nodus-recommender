@@ -53,13 +53,13 @@ Two rules make this coherent:
 ```text
 Nodus/
 ├── sdk/          nodus-shared, nodus-instance, nodus-sdk  (git repo)
-├── backend/      core, store, ingest, api                        (git repo)
+├── recommender/      core, store, ingest, api                        (git repo)
 │   └── docs/     this document set
 └── web/          the Leptos client                               (git repo)
     └── docs/     the client document set
 ```
 
-The three projects are submodules of one superproject. `backend` and `web` both
+The three projects are submodules of one superproject. `recommender` and `web` both
 depend on the SDK crates, and both are compiled for different targets (native vs
 `wasm32`). Three consequences worth stating, because they are the reason this
 split has costs:
@@ -76,9 +76,9 @@ split has costs:
   edit-and-build loop.
 - **Additive-only within a minor.** The two sides deploy independently, so a
   change that removes or renames a field is a major bump and a coordinated
-  release. See [08-sdk.md](08-sdk.md).
+  release. See [03-contract.md](../../sdk/docs/03-contract.md).
 
-The SDK repository also runs a CI job that checks out `backend@main` and
+The SDK repository also runs a CI job that checks out `recommender@main` and
 `web@main` against the proposed SDK commit: it is the only place where both
 consumers are guaranteed to compile together.
 
@@ -89,13 +89,13 @@ container, which is the supported local setup.
 
 | Crate | Repo | Kind | Responsibility |
 | --- | --- | --- | --- |
-| `nodus-core` | backend | lib, pure, wasm-safe | domain types, similarity, candidate generation, scoring, diversity, reason formatting. No I/O, no clock, no async. |
+| `nodus-core` | recommender | lib, pure, wasm-safe | domain types, similarity, candidate generation, scoring, diversity, reason formatting. No I/O, no clock, no async. |
 | `nodus-shared` | sdk | lib, wasm-safe | wire DTOs shared by API and client (serde). The single source of truth for the HTTP contract. |
 | `nodus-instance` | sdk | lib, native + wasm | Mastodon domain model plus `InstanceApi` (the operations as a trait). Transports are feature-gated: `reqwest` on native, `gloo-net`/`web-sys` on wasm. One surface, no duplicated endpoint definitions. |
 | `nodus-sdk` | sdk | lib, wasm-safe | client state machine: `AppState`, `Command`, `Sdk<I, D, P, C>` over four ports (`InstanceApi`, `Discovery`, `Persistence`, `Clock`). No framework dependency, no I/O in `dispatch`. |
-| `nodus-store` | backend | lib | the only crate that writes SQL: sqlx repositories, migrations. |
-| `nodus-ingest` | backend | lib + `nodus-sync` bin | background graph sync, job queue, crawl frontier, rate limiter. |
-| `nodus-api` | backend | bin | axum HTTP: recommendations, telemetry, token intake, health/metrics. |
+| `nodus-store` | recommender | lib | the only crate that writes SQL: sqlx repositories, migrations. |
+| `nodus-ingest` | recommender | lib + `nodus-sync` bin | background graph sync, job queue, crawl frontier, rate limiter. |
+| `nodus-api` | recommender | bin | axum HTTP: recommendations, telemetry, token intake, health/metrics. |
 | `nodus-web` | web | wasm bin | the Leptos client (the product UI). |
 
 `core`, `shared` and `mastodon` compile to `wasm32-unknown-unknown`; if one of
@@ -126,7 +126,7 @@ Why server-side storage at all: the graph has to advance while the user is
 asleep, and a follow list read every 24 h is what keeps candidates fresh.
 
 **Consequence:** there are no server sessions and no cookie auth. See
-[07-api.md](07-api.md) and the threat model in [09-privacy.md](09-privacy.md).
+[07-api.md](07-api.md) and the threat model in [08-privacy.md](08-privacy.md).
 
 ## The client
 
@@ -179,7 +179,7 @@ Details and budget math in [04-ingestion.md](04-ingestion.md).
 | Client data | `gloo-net` + `web-sys` WebSocket + IndexedDB | streaming and offline cache |
 | API client (shared) | one crate, two transports | prevents the native/wasm endpoint drift |
 | Errors (server) | `thiserror` + typed API error envelope | |
-| Config | env vars → typed `Config` | [10-operations.md](10-operations.md) |
+| Config | env vars → typed `Config` | [09-operations.md](09-operations.md) |
 | Observability | `tracing` + Prometheus metrics | no PII, no tokens |
 
 ## Failure modes
@@ -192,7 +192,7 @@ Details and budget math in [04-ingestion.md](04-ingestion.md).
 | Worker down | feed serves stored data; `similarity_age_hours` grows; UI shows freshness |
 | API down | client still renders timelines and compose (direct to Mastodon); only the Feed tab degrades, with an explicit banner |
 | Malicious instance | responses are untrusted: HTML is sanitized before render, media is not proxied, CSP blocks inline script |
-| XSS in client | token is in IndexedDB — mitigated by strict CSP, no third-party scripts, no `innerHTML` of untrusted content; see [09-privacy.md](09-privacy.md) |
+| XSS in client | token is in IndexedDB — mitigated by strict CSP, no third-party scripts, no `innerHTML` of untrusted content; see [08-privacy.md](08-privacy.md) |
 
 ## Deliberately absent
 
@@ -201,4 +201,4 @@ Details and budget math in [04-ingestion.md](04-ingestion.md).
 - No Redis, no session store.
 - No SSR, no Node toolchain, no npm (Playwright is dev-only, in the `web` repo).
 - No microservices: one API, one worker, one database.
-- No shared runtime library beyond the SDK crates: `core` is backend-only.
+- No shared runtime library beyond the SDK crates: `core` is recommender-only.

@@ -1,6 +1,6 @@
-# 09 — Privacy and threat model
+# 08 — Privacy and threat model
 
-Status: draft · Last revised: 2026-11-06
+Status: revision 1 · Last revised: 2026-11-06
 
 The product is social discovery; the data is other people's public activity and
 the user's own follows. The design goal is: **hold the minimum that makes

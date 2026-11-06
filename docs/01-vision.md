@@ -69,7 +69,7 @@ personalize them.
   first; learned weights later, still small and inspectable.
 - **No cross-user exposure of private data.** Favourites are private by default
   on Mastodon; we use them only as anonymized edges and never surface one user's
-  activity to another ([09-privacy.md](09-privacy.md)).
+  activity to another ([08-privacy.md](08-privacy.md)).
 - **No DMs, no notification content, no media storage.**
 
 ## Success metrics

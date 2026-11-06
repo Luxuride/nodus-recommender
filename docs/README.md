@@ -1,4 +1,4 @@
-# Design documentation — backend
+# Design documentation — recommender
 
 These documents are the source of truth for **what** we are building and **why**.
 Code follows them; when code and docs disagree, that is a bug in one of them and
@@ -7,10 +7,11 @@ the conflict gets resolved here first.
 Status: **draft** — written before implementation, expected to change as the
 first vertical slice teaches us things. Each document carries its own status line.
 
-This is the **backend** half of the design. The client has its own set in
+This is the **recommender** half of the design. The client has its own set in
 [`web/docs/`](../../web/docs/README.md), and the SDK — the wire contract plus the
-client state machine — has its own README in [`sdk/README.md`](../../sdk/README.md)
-with the cross-cutting rules in [08-sdk.md](08-sdk.md).
+client state machine — has its own document set in
+[`sdk/docs/`](../../sdk/docs/README.md). The client-side contract and state model
+are documented there, not here.
 
 The three projects are submodules of one superproject, so they always sit at these
 relative paths:
@@ -18,7 +19,7 @@ relative paths:
 ```text
 Nodus/            ← superproject: .devcontainer, .gitmodules, README
 ├── sdk/          nodus-shared, -instance, -sdk   (wire + instance + client state)
-├── backend/      core, store, ingest, api · docs/ ← you are here
+├── recommender/      core, store, ingest, api · docs/ ← you are here
 └── web/          the Leptos client · docs/
 ```
 
@@ -33,12 +34,18 @@ Nodus/            ← superproject: .devcontainer, .gitmodules, README
 | [05-similarity.md](05-similarity.md) | Similar-user computation, candidate generation |
 | [06-ranking.md](06-ranking.md) | Scoring, ranking, feedback learning, cold start |
 | [07-api.md](07-api.md) | HTTP contract served to the client |
-| [08-sdk.md](08-sdk.md) | The SDK repository: what it owns, versioning, pinning via submodules, compatibility CI |
-| [09-privacy.md](09-privacy.md) | Threat model, consent, data minimization, retention, deletion |
-| [10-operations.md](10-operations.md) | Config, migrations, observability, local dev, runbook |
-| [11-roadmap.md](11-roadmap.md) | Milestones and what "done" means for each |
-| [12-trademark.md](12-trademark.md) | Naming rules that keep the Mastodon mark out of our identity |
+| [08-privacy.md](08-privacy.md) | Threat model, consent, data minimization, retention, deletion |
+| [09-operations.md](09-operations.md) | Config, migrations, observability, local dev, runbook |
+| [10-roadmap.md](10-roadmap.md) | Milestones and what "done" means for each |
+| [11-trademark.md](11-trademark.md) | Naming rules that keep the Mastodon mark out of our identity |
 | [decisions.md](decisions.md) | Decision log: choice, alternatives, rationale |
+
+The SDK — wire contract, client state machine, versioning and pinning rules — is
+documented in the SDK repository's `docs/`:
+<https://github.com/luxuride/nodus-sdk/tree/main/docs>. Read
+[03-contract.md](../../sdk/docs/03-contract.md) for the wire contract and
+[02-architecture.md](../../sdk/docs/02-architecture.md) for the client state that
+the web client renders.
 
 Client documents (why Leptos, scope/parity, data layer, UI, quality) live in
 `web/docs/`.
@@ -63,7 +70,7 @@ Use these words consistently in docs, code and issues.
 - **similar user** — another *our user* whose follow/engagement profile is close.
 - **SDK** — the crates published from the `sdk` repository: our wire DTOs, the
   typed instance API, and the client's state machine. The only shared code between
-  backend and client.
+  recommender and client.
 
 ## Open questions
 
@@ -81,7 +88,7 @@ Tracked here so they are not lost; each blocks or shapes a document.
 4. **License.** Assumed AGPL-3.0-or-later (networked service, Mastodon itself is
    AGPL). Confirm before publishing the repositories.
 5. **Contract publish target.** Assumed git tags only, no crates.io
-   ([08-sdk.md](08-sdk.md)). Revisit if a third consumer appears.
+   ([03-contract.md](../../sdk/docs/03-contract.md)). Revisit if a third consumer appears.
 
 Answered and folded into the docs (kept for the record): frontend framework →
 Leptos (D5); full client vs Feed tab → full client (D6); the Feed tab follows via
@@ -90,6 +97,10 @@ the instance directly, not a proxy (D4, revised); telemetry is opt-in per user.
 ## Conventions
 
 - Markdown, one H1 per file, numbered files, `Status:` line at the top.
+- Numbers are contiguous and carry meaning: they are the reading order. When a
+document leaves the set (or a new one is inserted), the later files are renamed
+with `git mv` so history follows and no number is skipped; the H1, the `Status:`
+line and every cross-reference are updated in the same change.
 - Cross-link with relative paths; never duplicate a table that lives elsewhere —
   link to it.
 - Mermaid diagrams are allowed where a picture removes a paragraph.

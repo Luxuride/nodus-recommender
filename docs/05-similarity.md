@@ -102,7 +102,7 @@ score[c] += 0.35 · Σ_{a ∈ engagers(c) ∩ (F(u) ∪ similar(u))} w_engager(a
 
 Favourites of our users are private data, so `engagers(c)` only ever contains
 *our users* — a user's own engagement is never revealed to anyone else, it only
-feeds aggregate counts ([09-privacy.md](09-privacy.md)).
+feeds aggregate counts ([08-privacy.md](08-privacy.md)).
 
 ### Popularity damping
 

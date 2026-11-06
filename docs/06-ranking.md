@@ -94,7 +94,7 @@ hours plus the author-affinity term keeps it fresh without collapsing to
 
 ## Learning from feedback
 
-Telemetry (opt-in, [09-privacy.md](09-privacy.md)) gives implicit labels:
+Telemetry (opt-in, [08-privacy.md](08-privacy.md)) gives implicit labels:
 
 | Event | Label | Seed weight |
 | --- | --- | --- |

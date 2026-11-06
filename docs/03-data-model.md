@@ -41,8 +41,9 @@ Metadata about a fediverse host we talk to.
 ### `app_user`
 Our users — the only accounts we may hold tokens for.
 
-The token arrives from the browser (see [08-sdk.md](08-sdk.md) and
-[09-privacy.md](09-privacy.md)); we never run an OAuth redirect of our own and
+The token arrives from the browser (see
+[02-architecture.md](../../sdk/docs/02-architecture.md) and
+[08-privacy.md](08-privacy.md)); we never run an OAuth redirect of our own and
 we register no application per instance. `access_token_enc` is populated only
 when the user grants background sync.
 

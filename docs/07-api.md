@@ -29,7 +29,7 @@ timestamps. Errors use a single shape:
 **Bearer Mastodon access token. No sessions, no cookies, no OAuth endpoints of
 our own.** The client obtains the token itself (dynamic app registration + PKCE
 against its instance, token in IndexedDB — see
-[08-sdk.md](08-sdk.md)) and presents it on every call:
+[02-architecture.md](../../sdk/docs/02-architecture.md)) and presents it on every call:
 
 ```http
 Authorization: Bearer <mastodon_access_token>
@@ -44,7 +44,7 @@ Consequences, stated plainly:
 
 - Tokens are long-lived (Mastodon does not expire them). The server stores a
   copy **only if** the user grants background sync; see
-  [09-privacy.md](09-privacy.md).
+  [08-privacy.md](08-privacy.md).
 - No CSRF surface, no cookie `SameSite` reasoning, no session table.
 - Abuse limiting is per token hash (`sha256` prefix), never per IP alone.
 

@@ -22,7 +22,7 @@ documents can cite them (`D4`).
 | D12 | **No telemetry vendor, no email collected** | the privacy story is a feature and an audit surface we do not want; `interaction_event` is opt-in and first-party | operational needs (crash reporting) exceed what logs give us |
 | D13 | **The SDK owns client state** | the client is a renderer: session, timelines, feed, streaming status and cache policy live in `nodus-sdk` behind a `Sdk<I, D, P, C>` over four ports; otherwise pagination and cache rules would exist once in the browser and again in the sync worker and drift | a second UI (native, terminal) appears — the split is the same, only the renderer changes |
 | D14 | **Superproject with submodules, SDK consumed by path** | one gitlink per project pins a known-good combination; `path = "../sdk/crates/…"` keeps cross-project edits atomic and buildable before pushing, and avoids a second copy of the sources in `~/.cargo/git` | an external consumer appears outside this superproject, at which point a tagged `git =` dependency becomes the right second channel |
-| D15 | **No Mastodon mark in any name** | the trademark policy forbids the word mark in a product, service or company name, and the software licence grants no licence to the marks; the project is `Nodus`, crates are `nodus-*`, and the mark appears only in sentences that state compatibility (see [12-trademark.md](12-trademark.md)) | never; this is a legal constraint, not a preference |
+| D15 | **No Mastodon mark in any name** | the trademark policy forbids the word mark in a product, service or company name, and the software licence grants no licence to the marks; the project is `Nodus`, crates are `nodus-*`, and the mark appears only in sentences that state compatibility (see [11-trademark.md](11-trademark.md)) | never; this is a legal constraint, not a preference |
 
 ## Notes on the ones that cost the most
 
@@ -40,7 +40,8 @@ which was the alternative we rejected.
 
 **D10** is the one most likely to be second-guessed. Splitting three repositories
 buys independent deploy cadence and a hard, versioned boundary; it costs atomic
-changes across the wire. The contract CI (see [08-sdk.md](08-sdk.md))
+changes across the wire. The contract CI (see
+[03-contract.md](../../sdk/docs/03-contract.md))
 exists specifically to make the cost visible early.
 
 **D15** cost a rename of every repository, crate and binary shortly after the
