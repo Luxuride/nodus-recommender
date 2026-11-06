@@ -115,6 +115,63 @@ Both endpoints rank on demand, persist the shown snapshot, and return an opaque
 cursor. Page 2 reuses the `feed_id` snapshot so impressions and clicks map to
 stable item ids.
 
+### One snapshot per reader, not per request
+
+A feed is a **snapshot**, and a snapshot is a fact about a moment: `feed_id`,
+the ordered item ids, and the clock the ranking ran at. Three consequences, each
+of which is a rule rather than an implementation detail:
+
+1. **Backfill never re-ranks.** `cursor` names `(feed_id, item_id)`; every later
+   page replays the snapshot. A snapshot that could be recomputed mid-scroll
+   would disagree with itself, and the cursor would point into a list that no
+   longer exists.
+2. **A second tab joins the open snapshot.** `GET` without a cursor returns the
+   caller's snapshot while it is younger than `FEED_SNAPSHOT_TTL` (10 min),
+   instead of minting a new one. Two tabs must not show two different lists for
+   the same reader in the same minute — the user reads that as the app lying.
+   Only `POST /refresh`, an expired snapshot, or a new day mints a new `feed_id`.
+3. **Time is frozen at ranking time.** The freshness and stability terms use the
+   snapshot's `generated_at`, not `now()`, so a snapshot extended later (the
+   infinite-feed case below) produces the same order it would have produced at
+   creation. `now()` in a ranking function is a bug that only shows up when two
+   tabs disagree.
+
+### Infinite feed
+
+`limit` pages the snapshot up to `FEED_MAX_ITEMS` (500). Past that the response
+sets `next_cursor` to `null` and the client stops asking. This is deliberate: an
+unbounded feed is either recomputed (inconsistent) or stored per user per
+request (unbounded rows). 500 accounts is roughly a year of follows for a normal
+user; when a reader reaches the end we show an honest terminal card.
+
+If a later milestone wants a deeper feed, it extends the snapshot with an
+**append pass** keyed by `feed_id` — new items get ranks from the frozen clock and
+append after the last persisted id, so existing pages keep their meaning. That
+is the only shape that stays consistent for a reader who is halfway down.
+
+### Snapshots expire after 24 hours
+
+A snapshot is only continueable while its rows exist. `FEED_TTL` is **24 h**, far
+longer than the 10-minute reuse window and far shorter than the 7-day retention of
+the accounts and affinities behind it:
+
+| age of `feed_id` | behaviour |
+| --- | --- |
+| < 10 min | reused as-is; `GET` without a cursor returns the same snapshot |
+| 10 min – 24 h | continueable by cursor; `GET` without a cursor mints a new snapshot instead |
+| > 24 h | **gone**: `410 Gone` with `error.code = "feed_expired"` |
+
+`feed_expired` is a terminal answer, not a retry: the client drops the snapshot and
+loads a fresh one, and the SDK renders it as "this feed expired, here is a current
+one" rather than an error. Expiry is enforced by `recommendation_item.expires_at`
+(set to `served_at + 24 h`) and the retention job, so a cursor cannot point into a
+half-deleted snapshot: rows go, and the whole snapshot becomes unresolvable at
+once because the first lookup is by `feed_id`.
+
+The 24 h number is chosen so a reader can leave a tab open overnight and still
+scroll the list they were reading in the morning, while the item table stays
+bounded by a day of impressions instead of a week.
+
 ### `GET /api/v1/feed/accounts?limit=20`
 
 ```json

@@ -33,6 +33,12 @@ pub struct Candidate {
     /// small bonus, so a refresh does not reshuffle a list the user is still
     /// reading. `None` means never shown, which earns no bonus.
     pub last_shown_at: Option<OffsetDateTime>,
+    /// Impressions of this account in the last 7 days.
+    ///
+    /// The fatigue term, and the reason a user who has scrolled past an account
+    /// four times without tapping it stops seeing it: exposure without interaction
+    /// is a negative signal, not a neutral one.
+    pub seen_count_7d: i32,
     /// `user` or `user@host`.
     pub acct: String,
     /// Display name, when the account set one.
@@ -75,7 +81,9 @@ pub async fn candidates(
              WHERE u.id = $1 \
          ) \
          SELECT af.account_id, af.affinity::float8 AS affinity, af.support, af.sources, \
-             af.computed_at, shown.served_at AS last_shown_at, a.acct::text AS acct, \
+             af.computed_at, shown.served_at AS last_shown_at, \
+             impressions.seen AS seen_count_7d, \
+             a.acct::text AS acct, \
              a.display_name, a.note, a.avatar_url, a.followers_count, a.bot, \
              a.last_status_at, a.instance_host::text AS instance_host \
          FROM account_affinity af \
@@ -86,6 +94,14 @@ pub async fn candidates(
              WHERE ri.user_id = $1 AND ri.account_id = af.account_id \
              ORDER BY ri.served_at DESC LIMIT 1 \
          ) AS shown ON true \
+         LEFT JOIN LATERAL ( \
+             SELECT count(*)::integer AS seen \
+             FROM interaction_event e \
+             JOIN recommendation_item ri ON ri.id = e.item_id \
+             WHERE e.user_id = $1 AND ri.account_id = af.account_id \
+                 AND e.kind = 'impression' \
+                 AND e.server_ts > now() - interval '7 days' \
+         ) AS impressions ON true \
          WHERE af.user_id = $1 \
              AND af.expires_at > now() \
              AND a.moved_to_account_id IS NULL \
@@ -277,6 +293,7 @@ mod tests {
             sources: vec!["similar_user".to_owned()],
             computed_at: OffsetDateTime::UNIX_EPOCH,
             last_shown_at: None,
+            seen_count_7d: 0,
             acct: "a@b".to_owned(),
             display_name: None,
             note: None,

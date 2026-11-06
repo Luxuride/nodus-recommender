@@ -215,7 +215,7 @@ fn score(candidate: &Candidate, weights: RankingWeights, home: &str) -> f64 {
             age_days,
             same_instance: candidate.instance_host == home,
             language_match: false,
-            seen_count_7d: 0,
+            seen_count_7d: u32::try_from(candidate.seen_count_7d).unwrap_or(0),
             dismissed: false,
             // A candidate is by definition not followed yet, so there is no follow
             // edge to age; the taste decay applies to the affinity the calculator

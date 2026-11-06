@@ -31,6 +31,7 @@ documents can cite them (`D4`).
 | D22 | **No embedding vectors in v1; the scalar schema is the extension point** | `user_similarity` and `account_affinity` store real-valued scores with their components (`co_follow`, `co_fav`, `co_reply`, `reciprocity`) rather than a vector, because every score is explainable to the user who sees it — which is a product requirement, not a preference. `pgvector` is installed and the migration path is additive (a `vector(N)` column plus an HNSW index), so the option stays open without paying for a model, an embedding pipeline and an unexplainable score today | a content signal (post text, topics) is needed to recommend across instances with no follow overlap, and the cold-start ladder cannot cover it with popularity |
 | D23 | **Crawl accounts, not users; schedule tokens** | once refresh runs continuously, the unit of work is the account — 500 users following one account is one series of fetches, not 500. So the queue holds per-account work and the token is a *resource* the worker schedules: any consented token from an instance can fetch, preferring the one with the most remaining budget and the oldest last use. `sync_user` shrinks to ingesting that user's edges; it no longer owns status fetching | a single instance's token pool is too thin to crawl it (one consenter, many accounts), at which point crawling falls back to that user's own budget and the graph stays shallow there |
 | D24 | **Refresh policy: temperature tiers, 3 pages max, priority = audience weight** | an account's refresh interval is decided by how many people its posts can reach: `hot` (in ≥ 25 users' affinity sets, or followed in the last 7 days) every 6 h; `warm` (in ≥ 1) every 24 h; `cold` (known but in nobody's set) every 7 days, and only the first page. Page depth follows the same tier — 1 page (40 posts) cold, 2 warm, 3 hot — because `POST_MAX_AGE_DAYS = 7` means a fourth page is never shown. Ordering inside a tier is `audience_weight DESC, last_refreshed_at ASC`, and a host whose budget is spent reschedules with jitter rather than failing, so a throttled host does not produce a retry storm | measurement shows the 7-day post window rarely binds and a deeper first fetch is worth more than a second one |
+| D25 | **A feed is one immutable snapshot per reader, shared across tabs** | `feed_id` names a fixed ordered item list plus the clock it was ranked at; backfill replays it, a second tab joins it while it is younger than `FEED_SNAPSHOT_TTL` (10 min), and only `POST /refresh`, expiry or a new day mints a new one. Time-dependent terms use the snapshot's `generated_at`, never `now()`. Feed depth is capped at `FEED_MAX_ITEMS` (500) and the client shows a terminal card rather than receiving a list that would have to be recomputed; a snapshot lives `FEED_TTL` (24 h) and then answers `410 feed_expired`, so the item table stays bounded by a day of impressions | a recomputed feed disagrees with itself mid-scroll, and two tabs showing two different lists reads as the app lying; if a deeper feed is ever needed the snapshot is extended by an append pass from the frozen clock, never re-ranked |
 
 
 | D15 | **No Mastodon mark in any name** | the trademark policy forbids the word mark in a product, service or company name, and the software licence grants no licence to the marks; the project is `Nodus`, crates are `nodus-*`, and the mark appears only in sentences that state compatibility (see [11-trademark.md](11-trademark.md)) | never; this is a legal constraint, not a preference |
@@ -111,3 +112,38 @@ over `instance`, `app_user`, `job` — is exactly the shape Diesel is good at, a
 would justify keeping a `diesel` module next to the SQL one for *those* tables. Until
 then the honest summary is: same performance, less of our code covered, one more
 description of the schema. Recorded as D19 so the question is answered once.
+
+### Why the feed is a snapshot (D25 in detail)
+
+The instruction that produced this decision was simple — "one page load is an
+infinite feed, and once initiated it has to be consistent, even when a new feed
+opens on another tab" — and it rules out the obvious implementation, which is to
+rank on every request and let the client paginate.
+
+Ranking on every request means the list is a function of `now()`. Two tabs then
+disagree, a scroll re-reads a list that has changed underneath it, and an
+impression recorded at item 40 may name a row that no longer exists. Ranking once
+per snapshot moves the cost from "every page" to "once per ten minutes", and it
+makes every item id a durable fact.
+
+The cap at 500 is the honest part. An infinite feed implies an unbounded supply
+of good candidates, and at our scale there isn't one: past a few hundred accounts
+the ranking is recommending neighbours of neighbours with no evidence behind them.
+A terminal card ("that's everyone we can suggest right now — check back after your
+follows refresh") is more truthful than a spinner, and it keeps the table bounded
+by `users × 500` rather than `users × pages scrolled × forever`.
+
+### Why a snapshot dies after a day (D25, the TTL half)
+
+A snapshot that never expires is a table that grows with every scroll of every
+user, and its cursor is a promise that cannot be kept once the rows are gone. The
+24-hour ceiling is where those two facts meet: long enough that a tab left open
+overnight still scrolls the list it started, short enough that `recommendation_item`
+holds roughly a day of impressions rather than a week.
+
+Expiry is deliberately **terminal rather than gradual**. Rows are deleted by
+`expires_at`, but the client never sees a half-deleted snapshot, because the first
+lookup is by `feed_id` and a snapshot with no rows left is unresolvable. `410
+feed_expired` tells the client the truth — start again — instead of a 404 it would
+have to guess about, or a 200 with a shuffled list, which is the failure mode that
+makes people distrust a recommendation feed.
