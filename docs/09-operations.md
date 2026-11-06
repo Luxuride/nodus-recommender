@@ -28,8 +28,8 @@ docker compose -f recommender/compose.yml up -d
 docker compose -f recommender/compose.yml exec postgres psql -U mastodon -c '\dx'
 
 # recommender
-cd recommender && cargo run --bin nodus-api
-cd recommender && cargo run --bin nodus-sync
+cd recommender && cargo run --bin nodus-feeds
+cd recommender && cargo run --bin nodus-calculator
 
 # web (proxy /api → localhost:3000)
 cd web && trunk serve --port 8080
@@ -62,6 +62,12 @@ with the offending key named.
 | `POST_RETENTION_DAYS` | no | `14` | status retention |
 | `EVENT_RETENTION_DAYS` | no | `90` | telemetry retention |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | — | traces, optional |
+| `REDIS_URL` | no | — | absent ⇒ in-process caches; refused when the replica count is set above 1 |
+| `FEEDS_DB_MAX_CONNECTIONS` | no | `10` | pool for the feeds role, per replica |
+| `CALC_DB_MAX_CONNECTIONS` | no | `4` | pool for the calculator role, per replica |
+| `CALCULATOR_REPLICAS` | no | `1` | declares how many replicas run; without Redis it is the guard that keeps per-host budgets honest |
+| `FEED_CACHE_SECONDS` | no | `60` | Redis TTL for a rendered feed page |
+| `VERIFY_CACHE_SECONDS` | no | `600` | token verification TTL |
 
 `readyz` reports whether the required keys are present (never their values).
 
@@ -78,20 +84,46 @@ with the offending key named.
 ## Deployment topology
 
 ```text
-CDN (static)  ── web/dist, immutable hashed assets, SPA fallback to index.html
-API host      ── nodus-api (1..n), /api/v1 only, no static files
-Worker host   ── nodus-sync (exactly 1 while the queue is Postgres-based)
-Postgres      ── single primary, backups 7 days, no read replicas yet
+CDN (static)   ── web/dist, immutable hashed assets, SPA fallback to index.html
+feeds          ── nodus-feeds, N replicas, /api/v1 only, no static files
+calculator     ── nodus-calculator, M replicas, no user traffic
+Redis          ── shared caches, per-host budgets, global locks (degradable)
+Postgres       ── single primary, two roles, backups 7 days, no replicas yet
 ```
 
-One worker is a deliberate constraint: the job claim uses `FOR UPDATE SKIP
-LOCKED`, so more than one is safe, but the per-host rate limiter is in-process.
-Scaling to N workers means moving the token bucket into Postgres first (a
-`rate_bucket` table with `UPDATE ... RETURNING`), which is documented as the
-step, not done ahead of need.
+**Feeds: N replicas, stateless.** No in-process state that a request depends on:
+the token cache and the rendered-page cache are Redis, the feed snapshot is a
+Postgres row. HPA on RPS and p95 latency, `minReplicas: 2`, `maxReplicas: 20`,
+PodDisruptionBudget `minAvailable: 1`, rolling update with `maxSurge: 1`.
+Any replica can serve any request, and the contract version is part of the
+image.
 
-The API is stateless: any instance can serve any request, and the contract
-version is part of the image.
+**Calculator: M replicas, safe to run in parallel.** The claim uses
+`FOR UPDATE SKIP LOCKED`, so replicas take disjoint jobs; a lease deadline
+re-queues whatever a dying replica held. Two things must be shared to make M
+correct:
+
+- **Per-host budgets live in Redis.** Without it, M replicas each spend the full
+  budget and the effective rate is M× the promised one. With `REDIS_URL` absent
+  the service refuses to start when `CALCULATOR_REPLICAS > 1`, because the honest
+  behaviour is to refuse a configuration it cannot honour.
+- **Whole-graph jobs take a lock.** `recompute_similarity`, `recompute_affinity`
+  and `fit_model` acquire `lock:recompute` (SET NX with a TTL and owner token,
+  renewed while running). One replica runs them; the others keep draining P0–P4,
+  which is where the user-visible latency lives. A dead owner's lock expires and
+  the work is retried, which is safe because these jobs are idempotent — they
+  recompute, they do not accumulate.
+
+Scale it on **queue depth and per-tier job age**, not on CPU: the crawler is
+rate-limit bound, so extra replicas mostly add in-flight requests up to the
+per-host budget. `minReplicas: 1`, `maxReplicas: 8`.
+
+**Postgres: one primary, two roles.** `nodus_feeds` (read on derived tables,
+insert on `recommendation_item`/`interaction_event`, read-write on `app_user`
+for consent) and `nodus_calculator` (read-write on graph and derived tables).
+`statement_timeout` is 1 s for the feeds role and 30 s for the calculator, and
+`application_name` distinguishes them in `pg_stat_activity`, which is the first
+thing to look at when the feed slows down and the queue does not.
 
 ## CI per repository
 

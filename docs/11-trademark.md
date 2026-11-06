@@ -30,7 +30,7 @@ And for projects built on the open-source code:
 
 | Context | Allowed | Not allowed |
 | --- | --- | --- |
-| Product, repository, crate, binary, service name | `nodus`, `nodus-sdk`, `nodus-api` | `mastodon-*`, `Nodus for Mastodon` as a *name*, any spelling variant (`mstdn`, `mastodoon`) |
+| Product, repository, crate, binary, service name | `nodus`, `nodus-sdk`, `nodus-feeds` | `mastodon-*`, `Nodus for Mastodon` as a *name*, any spelling variant (`mstdn`, `mastodoon`) |
 | Domain name | `nodus.example` | `mastodon-nodus.com`, `nodus-mastodon.com` (mark in any level of the name) |
 | Prose, docs, marketing | "A recommendation engine for use with Mastodon", "reads the Mastodon API", "compatible with Mastodon 4.2+" | "the Nodus Mastodon client", "Mastodon's official recommender" |
 | Logos and artwork | — | The Mastodon logo, the elephant mark, or anything confusingly similar |

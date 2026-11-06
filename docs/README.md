@@ -19,7 +19,7 @@ relative paths:
 ```text
 Nodus/            ← superproject: .devcontainer, .gitmodules, README
 ├── sdk/          nodus-shared, -instance, -sdk   (wire + instance + client state)
-├── recommender/      core, store, ingest, api · docs/ ← you are here
+├── recommender/      core, store, calculator, feeds · docs/ ← you are here
 └── web/          the Leptos client · docs/
 ```
 

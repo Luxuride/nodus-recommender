@@ -11,17 +11,19 @@ release of the repositories it touches.
 The design above, plus the client doc set in `web/docs/`.
 
 **Exit:** every open question in [README.md](README.md) is either answered or
-explicitly deferred; `contract`, `recommender` and `web` repositories exist with
+explicitly deferred; `sdk`, `recommender` and `web` repositories exist with
 their scaffolds building; `cargo clippy -D warnings` and `trunk build --release`
 are green in CI.
 
 ## M1 — Contract v0.1 + recommender skeleton
 
-Scope: `nodus-store` migrations for the tables in
-[03-data-model.md](03-data-model.md) (minus `status` and `model_version`),
-`/healthz`, `/readyz`, `/api/v1/meta`, bearer verification against a real
-instance, `PUT /api/v1/sync/token` with AEAD storage, `sync_user` (P0) landing
-`follow_edge` rows, and the `job` queue with `SKIP LOCKED`.
+Scope: two deployables from one workspace. `nodus-store` migrations for the
+tables in [03-data-model.md](03-data-model.md) (minus `status` and `model_version`);
+`nodus-feeds` serving `/healthz`, `/readyz`, `/api/v1/meta`, bearer verification
+against a real instance and `PUT /api/v1/sync/token` with AEAD storage;
+`nodus-calculator` draining the `job` queue with `SKIP LOCKED`, with `sync_user`
+(P0) landing `account` and `follow_edge` rows. The two roles never call each
+other: the queue is the hand-off, so either can be restarted alone.
 
 **Exit:** pointing a real token at a real instance populates `account` and
 `follow_edge` for that user, twice, idempotently; a revoked token stops the job
