@@ -6,6 +6,8 @@
 //! which parts of the state are shared beyond a single request.
 
 use crate::config::Config;
+use nodus_cache::Cache;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::future::Future;
@@ -34,25 +36,31 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Build state from a connected pool and a parsed configuration.
+    /// Build state from a connected pool, a parsed configuration and the shared
+    /// cache backend the verified tokens are mirrored into.
     #[must_use]
     ///
     /// # Panics
     ///
     /// Panics when the HTTP client cannot be built, which can only happen if the TLS
     /// backend is misconfigured — a condition worth failing at boot.
-    pub fn new(pool: PgPool, config: Config) -> Self {
+    pub fn new(pool: PgPool, config: Config, shared: Arc<dyn Cache>) -> Self {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .user_agent(concat!("nodus/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("HTTP client builds");
+        let identities = SharedIdentityCache::new(
+            shared,
+            Duration::from_secs(config.verify_cache_seconds),
+            config.verify_cache_capacity,
+        );
         Self {
             pool,
             config: Arc::new(config),
             started_at: Instant::now(),
             http,
-            identities: Arc::new(IdentityCache::new(Duration::from_secs(600), 10_000)),
+            identities: Arc::new(identities),
         }
     }
 
@@ -64,7 +72,11 @@ impl AppState {
 }
 
 /// What an instance told us about the bearer token's owner.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Serialized as-is into the shared cache: the field names are part of the value
+/// two replicas exchange, so they are the storage format and must not be renamed
+/// without invalidating every cached entry (which is safe, merely wasteful).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Identity {
     /// The account's numeric id at its own instance.
     pub mastodon_account_id: i64,
@@ -157,10 +169,6 @@ impl IdentityCache {
         entries.insert(key, (Instant::now(), identity));
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "reached through the trait's forget")
-    )]
     fn drop_entry(&self, key: &[u8; 32]) {
         if let Ok(mut entries) = self.entries.lock() {
             entries.remove(key);
@@ -201,9 +209,131 @@ impl VerificationCache for IdentityCache {
     }
 }
 
+/// Verified tokens with a process-local cache in front of a shared one.
+///
+/// The local [`IdentityCache`] is what makes the shared backend worth having: a hot
+/// token is answered from memory, and Redis is consulted only when this replica has
+/// not seen the token yet. A hit in the shared layer is copied into the local one so
+/// the next request on this replica pays no network round trip either.
+///
+/// Every shared-layer failure is treated as a miss and logged at debug. The cache is
+/// an optimisation, not a source of truth: if Redis is down, the instance is asked
+/// again and the request still succeeds — a cache outage must never turn into a 500.
+#[derive(Debug)]
+pub struct SharedIdentityCache {
+    local: IdentityCache,
+    shared: Arc<dyn Cache>,
+    ttl: Duration,
+}
+
+impl SharedIdentityCache {
+    /// Layer a local cache over `shared`, expiring entries after `ttl` and holding
+    /// at most `capacity` of them per replica.
+    #[must_use]
+    pub fn new(shared: Arc<dyn Cache>, ttl: Duration, capacity: usize) -> Self {
+        Self {
+            local: IdentityCache::new(ttl, capacity),
+            shared,
+            ttl,
+        }
+    }
+}
+
+/// The shared-cache key for a token fingerprint.
+///
+/// Hex rather than the raw bytes because the bytes are not valid UTF-8 often
+/// enough to be awkward with tooling, and because `redis-cli GET verify:<64 hex>`
+/// is something an operator can type.
+fn cache_key(key: &[u8; 32]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(7 + key.len() * 2);
+    encoded.push_str("verify:");
+    for byte in key {
+        encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        encoded.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
+impl VerificationCache for SharedIdentityCache {
+    fn get<'a>(
+        &'a self,
+        key: &'a [u8; 32],
+    ) -> Pin<Box<dyn Future<Output = Option<Identity>> + Send + 'a>> {
+        Box::pin(async move {
+            if let Some(identity) = self.local.lookup(key) {
+                return Some(identity);
+            }
+            let encoded = cache_key(key);
+            match self.shared.get(&encoded).await {
+                Ok(Some(bytes)) => match serde_json::from_slice::<Identity>(&bytes) {
+                    Ok(identity) => {
+                        self.local.remember(*key, identity.clone());
+                        Some(identity)
+                    }
+                    Err(error) => {
+                        tracing::debug!(
+                            %error,
+                            "shared verification cache held an undecodable entry"
+                        );
+                        None
+                    }
+                },
+                Ok(None) => None,
+                Err(error) => {
+                    tracing::debug!(
+                        %error,
+                        "shared verification cache read failed; treating as a miss"
+                    );
+                    None
+                }
+            }
+        })
+    }
+
+    fn insert<'a>(
+        &'a self,
+        key: [u8; 32],
+        identity: Identity,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            self.local.remember(key, identity.clone());
+            let encoded = cache_key(&key);
+            let bytes = match serde_json::to_vec(&identity) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    tracing::debug!(
+                        %error,
+                        "verification could not be encoded for the shared cache"
+                    );
+                    return;
+                }
+            };
+            if let Err(error) = self.shared.set(&encoded, &bytes, self.ttl).await {
+                tracing::debug!(%error, "shared verification cache write failed");
+            }
+        })
+    }
+
+    fn forget<'a>(&'a self, key: &'a [u8; 32]) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            self.local.drop_entry(key);
+            let encoded = cache_key(key);
+            if let Err(error) = self.shared.delete(&encoded).await {
+                tracing::debug!(%error, "shared verification cache delete failed");
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Identity, IdentityCache, VerificationCache};
+    use super::{Identity, IdentityCache, SharedIdentityCache, VerificationCache};
+    use nodus_cache::{Cache, CacheError};
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     /// Drive a ready future to completion without a runtime.
@@ -257,5 +387,133 @@ mod tests {
         poll(cache.insert(key, identity("a@b")));
         poll(cache.forget(&key));
         assert_eq!(poll(cache.get(&key)), None);
+    }
+
+    /// A [`Cache`] that remembers one value and counts every operation, so a test
+    /// can assert a layer was or was not consulted without a Redis server or a
+    /// runtime beyond the one `#[tokio::test]` provides.
+    #[derive(Debug)]
+    struct CountingCache {
+        reads: AtomicUsize,
+        writes: AtomicUsize,
+        value: Mutex<Option<Vec<u8>>>,
+        fail_reads: bool,
+    }
+
+    impl CountingCache {
+        fn new(fail_reads: bool) -> Self {
+            Self {
+                reads: AtomicUsize::new(0),
+                writes: AtomicUsize::new(0),
+                value: Mutex::new(None),
+                fail_reads,
+            }
+        }
+
+        fn reads(&self) -> usize {
+            self.reads.load(Ordering::Relaxed)
+        }
+
+        fn writes(&self) -> usize {
+            self.writes.load(Ordering::Relaxed)
+        }
+    }
+
+    impl Cache for CountingCache {
+        fn get<'a>(
+            &'a self,
+            _key: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<u8>>, CacheError>> + Send + 'a>>
+        {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            let answer = if self.fail_reads {
+                Err(CacheError::Unavailable("test backend is down".to_owned()))
+            } else {
+                // A poisoned test lock is not worth distinguishing from empty.
+                match self.value.lock() {
+                    Ok(slot) => Ok((*slot).clone()),
+                    Err(_) => Ok(None),
+                }
+            };
+            Box::pin(std::future::ready(answer))
+        }
+
+        fn set<'a>(
+            &'a self,
+            _key: &'a str,
+            value: &'a [u8],
+            _ttl: Duration,
+        ) -> Pin<Box<dyn Future<Output = Result<(), CacheError>> + Send + 'a>> {
+            self.writes.fetch_add(1, Ordering::Relaxed);
+            if let Ok(mut slot) = self.value.lock() {
+                *slot = Some(value.to_vec());
+            }
+            Box::pin(std::future::ready(Ok(())))
+        }
+
+        fn delete<'a>(
+            &'a self,
+            _key: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<(), CacheError>> + Send + 'a>> {
+            if let Ok(mut slot) = self.value.lock() {
+                *slot = None;
+            }
+            Box::pin(std::future::ready(Ok(())))
+        }
+    }
+
+    fn layered(shared: Arc<CountingCache>) -> SharedIdentityCache {
+        SharedIdentityCache::new(shared, Duration::from_secs(60), 4)
+    }
+
+    #[tokio::test]
+    async fn a_local_hit_does_not_touch_the_shared_layer() {
+        let shared = Arc::new(CountingCache::new(false));
+        let cache = layered(Arc::clone(&shared));
+        let key = [9_u8; 32];
+
+        cache.insert(key, identity("a@b")).await;
+        let writes_after_insert = shared.writes();
+        let reads_after_insert = shared.reads();
+
+        assert_eq!(cache.get(&key).await, Some(identity("a@b")));
+        assert_eq!(cache.get(&key).await, Some(identity("a@b")));
+
+        assert_eq!(shared.reads(), reads_after_insert, "local hit read shared");
+        assert_eq!(shared.writes(), writes_after_insert, "a read wrote shared");
+    }
+
+    #[tokio::test]
+    async fn a_shared_hit_populates_the_local_layer() {
+        let shared = Arc::new(CountingCache::new(false));
+        let cache = layered(Arc::clone(&shared));
+        let key = [5_u8; 32];
+        let encoded = serde_json::to_vec(&identity("shared@host")).expect("identity encodes");
+        shared
+            .set("verify:any", &encoded, Duration::from_secs(60))
+            .await
+            .expect("fake cache always writes");
+
+        assert_eq!(cache.get(&key).await, Some(identity("shared@host")));
+        assert_eq!(shared.reads(), 1);
+        assert_eq!(cache.local.len(), 1, "the shared hit was not remembered");
+
+        // The second read is answered locally, so the shared layer is not asked again.
+        assert_eq!(cache.get(&key).await, Some(identity("shared@host")));
+        assert_eq!(shared.reads(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_shared_error_is_a_miss_and_not_a_panic() {
+        let shared = Arc::new(CountingCache::new(true));
+        let cache = layered(Arc::clone(&shared));
+
+        assert_eq!(cache.get(&[1_u8; 32]).await, None);
+        assert_eq!(shared.reads(), 1);
+        assert_eq!(
+            cache.local.len(),
+            0,
+            "a failed read must not remember anything"
+        );
     }
 }

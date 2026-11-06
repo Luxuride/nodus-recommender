@@ -27,6 +27,16 @@ pub struct Config {
     pub sync_enabled: bool,
     /// Upper bound on pooled Postgres connections.
     pub max_connections: u32,
+    /// Replica count as declared by the deployment, used only to refuse a
+    /// configuration the process cannot honour (see [`Config::validate`]).
+    pub replicas: u32,
+    /// Shared cache endpoint. Absent means the caches are in-process, which is
+    /// correct for exactly one replica.
+    pub redis_url: Option<String>,
+    /// How long a verified token stays cached, locally and in the shared backend.
+    pub verify_cache_seconds: u64,
+    /// Maximum number of verified tokens the local cache holds per replica.
+    pub verify_cache_capacity: usize,
     /// How long to wait for Postgres on the first connection before giving up.
     pub connect_timeout: Duration,
     /// Key used to encrypt stored instance tokens. Absent when sync is disabled, so a
@@ -48,6 +58,9 @@ pub enum ConfigError {
         /// Why the value was rejected.
         reason: String,
     },
+    /// Values that are each valid but cannot work together.
+    #[error("{0}")]
+    Inconsistent(&'static str),
 }
 
 impl Config {
@@ -86,6 +99,10 @@ impl Config {
             })
             .transpose()?
             .unwrap_or(10);
+        let replicas = parse("FEEDS_REPLICAS", 1_u32)?;
+        let redis_url = optional("REDIS_URL");
+        let verify_cache_seconds = parse("VERIFY_CACHE_SECONDS", 600_u64)?;
+        let verify_cache_capacity = parse("VERIFY_CACHE_CAPACITY", 10_000_usize)?;
         let token_enc_key = match optional("TOKEN_ENC_KEY") {
             Some(raw) => {
                 Some(
@@ -105,9 +122,45 @@ impl Config {
             public_base_url,
             sync_enabled,
             max_connections,
+            replicas,
+            redis_url,
+            verify_cache_seconds,
+            verify_cache_capacity,
             connect_timeout: Duration::from_secs(10),
             token_enc_key,
         })
+    }
+
+    /// Reject settings that cannot be honoured.
+    ///
+    /// The reason to refuse rather than warn: with several replicas and no shared
+    /// cache, every replica verifies a token at its instance independently, so the
+    /// instance sees N times the verification traffic and each replica honours a
+    /// revocation on its own schedule. One replica without Redis stays supported;
+    /// that is what development and small deployments use.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::Inconsistent`] when more than one replica is declared
+    /// without a shared cache.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.replicas > 1 && self.redis_url.is_none() {
+            return Err(ConfigError::Inconsistent(
+                "FEEDS_REPLICAS > 1 without REDIS_URL: verified tokens would be cached \
+                 per replica and every one of them would call the instance",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn parse<T: std::str::FromStr>(name: &'static str, default: T) -> Result<T, ConfigError> {
+    match optional(name) {
+        None => Ok(default),
+        Some(raw) => raw.parse().map_err(|_| ConfigError::Invalid {
+            name,
+            reason: format!("{raw} is not a valid value"),
+        }),
     }
 }
 

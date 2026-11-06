@@ -15,6 +15,7 @@ workspace = true
 axum = { workspace = true }
 base64 = { version = "0.22", features = ["alloc"] }
 nodus-core = { workspace = true }
+nodus-cache = { workspace = true, features = ["redis"] }
 nodus-shared = { workspace = true }
 nodus-store = { workspace = true }
 serde = { workspace = true }

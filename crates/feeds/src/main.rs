@@ -16,7 +16,9 @@ mod state;
 
 use crate::config::Config;
 use crate::state::AppState;
+use nodus_cache::Cache;
 use std::process::ExitCode;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -35,10 +37,15 @@ async fn main() -> ExitCode {
 /// Boot the service and serve until a shutdown signal arrives.
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
+    // Refuse a configuration the process cannot honour before connecting to
+    // anything: a misdeclared replica count is a deployment bug, not a runtime one.
+    config.validate()?;
     tracing::info!(
         listen = %config.listen_addr,
         origins = config.web_origins.len(),
         sync_enabled = config.sync_enabled,
+        replicas = config.replicas,
+        shared_cache = config.redis_url.is_some(),
         public_base_url = %config.public_base_url,
         "starting nodus-feeds"
     );
@@ -51,7 +58,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "migrations applied");
 
-    let state = AppState::new(pool, config.clone());
+    // One cache backend for the process. Without Redis the in-process map is
+    // correct for the single replica `validate` allows; with it, a verification
+    // performed by one replica is visible to the others.
+    let shared: Arc<dyn Cache> = if let Some(url) = config.redis_url.as_deref() {
+        Arc::new(nodus_cache::RedisCache::connect(url).await?)
+    } else {
+        tracing::warn!(
+            "REDIS_URL is not set: verified tokens are cached per process, so \
+             FEEDS_REPLICAS must stay at 1"
+        );
+        Arc::new(nodus_cache::InMemoryCache::new())
+    };
+
+    let state = AppState::new(pool, config.clone(), shared);
     let app = routes::router(state);
 
     let listener = TcpListener::bind(config.listen_addr).await?;
