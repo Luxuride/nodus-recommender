@@ -212,6 +212,12 @@ bounded by a day of impressions instead of a week.
 `"no_server_sync"` so the client shows an honest banner instead of faking
 personalization.
 
+A `cold_start` feed may be served from the instance-popular rung: when the user has
+no affinity rows yet, the items are accounts ranked by `followers_count` on the
+instance, never by affinity, and each reason carries `code: "popular_fallback"` so
+the client can label the list as "popular right now" instead of implying it was
+picked for this user.
+
 ### `GET /api/v1/feed/posts?limit=20&cursor=...`
 
 Same envelope; items carry `status` instead of `account`:

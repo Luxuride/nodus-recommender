@@ -105,7 +105,13 @@ pub async fn accounts(
 
     // First page: rank, record, then answer.
     let model_version = feed::active_model_version(&state.pool).await?;
-    let candidates = feed::candidates(&state.pool, user.id, limit + 1).await?;
+    let mut candidates = feed::candidates(&state.pool, user.id, limit + 1).await?;
+    if candidates.is_empty() {
+        // No affinity has been materialised for this user yet: serve the
+        // instance-popular rung instead of an empty first page. One ranking pass
+        // covers both, so scores and ordering keep the same shape either way.
+        candidates = feed::popular_candidates(&state.pool, user.id, limit + 1).await?;
+    }
     let (candidates, more) = split(candidates, limit);
     let weights = RankingWeights::default();
     let ranked = candidates

@@ -204,3 +204,98 @@ async fn a_snapshot_is_read_back_by_cursor(pool: PgPool) {
         None
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn popular_candidates_exclude_followed_and_order_by_followers(pool: PgPool) {
+    users::ensure_instance(&pool, "home.test").await.unwrap();
+    users::ensure_instance(&pool, "remote.test").await.unwrap();
+    let user = users::upsert(&pool, "home.test", 1, "me").await.unwrap();
+
+    // Four accounts, each with a distinct follower count, so the order the query
+    // returns is the order the counts imply and not an accident of insertion.
+    accounts::upsert_many(
+        &pool,
+        &[
+            new_account("home.test", 1, "me"),
+            NewAccount {
+                followers_count: 400,
+                ..new_account("remote.test", 10, "alice")
+            },
+            NewAccount {
+                followers_count: 300,
+                ..new_account("remote.test", 11, "bob")
+            },
+            NewAccount {
+                followers_count: 200,
+                ..new_account("remote.test", 12, "carol")
+            },
+            NewAccount {
+                followers_count: 100,
+                ..new_account("remote.test", 13, "dave")
+            },
+        ],
+    )
+    .await
+    .unwrap();
+
+    let me = accounts::find_id(&pool, "home.test", 1)
+        .await
+        .unwrap()
+        .unwrap();
+    let alice = accounts::find_id(&pool, "remote.test", 10)
+        .await
+        .unwrap()
+        .unwrap();
+    let bob = accounts::find_id(&pool, "remote.test", 11)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // alice is the most popular and already followed, bob is next and was dismissed:
+    // both are excluded even though a bare `ORDER BY followers_count` would rank them
+    // first.
+    accounts::replace_follows(&pool, me, &[alice], "server_sync")
+        .await
+        .unwrap();
+
+    let dismissed_item = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO recommendation_item (user_id, account_id, kind, score, model_version) \
+         VALUES ($1, $2, 'account', 0.4, 0) RETURNING id",
+    )
+    .bind(user.id)
+    .bind(bob)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO interaction_event (user_id, item_id, kind, client_ts, idempotency_key) \
+         VALUES ($1, $2, 'dismiss', now(), $3)",
+    )
+    .bind(user.id)
+    .bind(dismissed_item)
+    .bind(vec![2_u8; 32])
+    .fetch_optional(&pool)
+    .await
+    .unwrap();
+
+    let popular = feed::popular_candidates(&pool, user.id, 10).await.unwrap();
+    let accts: Vec<&str> = popular.iter().map(|c| c.acct.as_str()).collect();
+    assert_eq!(
+        accts,
+        vec!["carol", "dave"],
+        "unexpected popular candidates: {accts:?}"
+    );
+
+    // The fallback rung carries the neutral affinity and the empty signals, so the
+    // ranking pass and the stored reason cannot mistake it for a calculated row.
+    assert!((popular[0].affinity - 1.0).abs() < f64::EPSILON);
+    assert_eq!(popular[0].support, 0);
+    assert_eq!(popular[0].sources, Vec::<String>::new());
+    assert_eq!(popular[0].seen_count_7d, 0);
+    assert!(popular[0].last_shown_at.is_none());
+    assert_eq!(popular[0].followers_count, 200);
+
+    let limited = feed::popular_candidates(&pool, user.id, 1).await.unwrap();
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0].acct, "carol");
+}

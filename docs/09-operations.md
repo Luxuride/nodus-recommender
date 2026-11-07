@@ -22,18 +22,50 @@ building.
 # first boot (postCreateCommand does this)
 rustup target add wasm32-unknown-unknown
 trunk --version
+tailwindcss --help   # pinned standalone CLI, no Node
 
 # database
 docker compose -f recommender/compose.yml up -d
-docker compose -f recommender/compose.yml exec postgres psql -U mastodon -c '\dx'
+docker compose -f recommender/compose.yml exec postgres psql -U nodus -c '\dx'
 
-# recommender
+# recommender (two processes, one from each terminal)
 cd recommender && cargo run --bin nodus-feeds
-cd recommender && cargo run --bin nodus-calculator
+cd recommender && TOKEN_ENC_KEY=$(openssl rand -base64 32) cargo run --bin nodus-calculator
 
 # web (proxy /api → localhost:3000)
 cd web && trunk serve --port 8080
 ```
+
+### The first run, end to end
+
+This is the path a new user takes, and the order matters because each step is what
+makes the next one show something real:
+
+1. **Sign in.** `http://127.0.0.1:8080` shows one field: the instance host. The
+   client registers itself on that instance (`POST /api/v1/apps`), sends the
+   browser to `/oauth/authorize` with a PKCE challenge, and exchanges the code at
+   `/oauth/callback`. Paste-a-token still exists under "advanced" for instances
+   whose OAuth is broken. Nothing about the token reaches our server here.
+2. **The feed answers immediately, badly.** With no `account_affinity` rows the
+   feed is served from the instance-popular rung: accounts ranked by followers,
+   never by affinity, with `degraded: "cold_start"` and reasons of
+   `popular_fallback`. That is not a bug; it is the ladder working.
+3. **Opt in to background sync** (Settings). The token is sealed with
+   `TOKEN_ENC_KEY` and one `sync_user` job is queued. `nodus-calculator` claims it,
+   walks the account's follows at one request per second per host, writes
+   `follow_edge`, and enqueues `recompute_affinity` and `recompute_similarity`.
+4. **The feed changes character.** Within a few minutes `account_affinity` has
+   rows, the feed stops being popular and starts being justified, reasons switch
+   from `popular_fallback` to `followed_by_similar_users`, and
+   `degraded` disappears. If it does not, the queue is the place to look:
+   `SELECT kind, status, attempts, last_error FROM job ORDER BY id DESC LIMIT 20;`
+5. **Follow one of the recommendations.** The client follows on the instance with
+   the user's own token (our API never proxies a follow), posts a `follow` event,
+   and the recommender deletes that affinity row and queues a fresh `sync_user`.
+
+Without step 3 the stack is still usable — it just keeps serving the cold-start
+rung, which is the documented behaviour of `request_scoped` mode in
+`04-ingestion.md`.
 
 Tests: `cargo test --workspace` in `contract` and `recommender`; `trunk build
 --release` plus the Playwright suite in `web`. Integration tests that need the
