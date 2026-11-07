@@ -114,13 +114,7 @@ pub async fn record(
         item_ids.push(event.item_id);
         kind_texts.push(kind_text(event.kind).to_owned());
         timestamps.push(clamp_to_clock_window(client_ts, now));
-        // The column is `integer`; a dwell beyond it is meaningless and is capped
-        // rather than allowed to wrap negative.
-        dwells.push(
-            event
-                .dwell_ms
-                .map(|dwell| i32::try_from(dwell).unwrap_or(i32::MAX)),
-        );
+        dwells.push(dwell_for(event.kind, event.dwell_ms));
         encoded_keys.push(base64::engine::general_purpose::STANDARD.encode(key));
     }
 
@@ -218,12 +212,50 @@ fn clamp_to_clock_window(client_ts: OffsetDateTime, now: OffsetDateTime) -> Offs
     }
 }
 
+
+/// The dwell a client reported, or `None` when we do not want it.
+///
+/// Only an impression carries attention: dwell is how long a *rendered* item held
+/// the reader, so it belongs to the event that says the item was rendered. A follow
+/// or a dismiss is an outcome, not a measurement, and a client reporting dwell on
+/// one is reporting something we did not ask for.
+///
+/// The cap is the documented 120-second bound from `nodus_core::evidence`: an
+/// overnight tab is not attention. The column is `integer`, so clamping also keeps a
+/// nonsense value from having to be handled as an overflow.
+fn dwell_for(kind: EventKind, dwell_ms: Option<u32>) -> Option<i32> {
+    match (kind, dwell_ms) {
+        (EventKind::Impression, Some(dwell)) => {
+            i32::try_from(dwell.min(nodus_core::evidence::DWELL_CAP_MS)).ok()
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn at(unix_seconds: i64) -> OffsetDateTime {
         OffsetDateTime::from_unix_timestamp(unix_seconds).unwrap()
+    }
+
+    #[test]
+    fn only_an_impression_carries_measured_attention() {
+        assert_eq!(dwell_for(EventKind::Impression, Some(4_000)), Some(4_000));
+        assert_eq!(dwell_for(EventKind::Impression, None), None);
+        // An outcome is not a measurement, even when the client sends one.
+        assert_eq!(dwell_for(EventKind::Follow, Some(4_000)), None);
+        assert_eq!(dwell_for(EventKind::Click, Some(4_000)), None);
+    }
+
+    #[test]
+    fn an_overnight_tab_is_clamped_to_the_cap() {
+        let capped = dwell_for(EventKind::Impression, Some(u32::MAX));
+        assert_eq!(
+            capped,
+            Some(i32::try_from(nodus_core::evidence::DWELL_CAP_MS).unwrap())
+        );
     }
 
     #[test]
