@@ -35,6 +35,7 @@ pub mod jobs;
 pub mod models;
 pub mod retention;
 pub mod similarity;
+pub mod statuses;
 pub mod users;
 
 use sqlx::postgres::{PgPool, PgPoolOptions};

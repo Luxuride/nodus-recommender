@@ -23,7 +23,7 @@
 
 use std::process::ExitCode;
 
-use nodus_calculator::handlers::SyncConfig;
+use nodus_calculator::handlers::{RefreshConfig, SyncConfig};
 use nodus_calculator::{Config, Registry, Worker};
 use nodus_store::{connect_and_migrate, crypto::TokenSealer};
 use tokio::signal;
@@ -86,6 +86,7 @@ async fn main() -> ExitCode {
     }
 
     info!(worker = %config.worker_id, kinds = ?config.kinds, "starting nodus-calculator");
+    let refresh = RefreshConfig::new(sealer.clone(), config.max_rps_per_host);
     let sync = SyncConfig::new(sealer, config.max_rps_per_host);
     // One budget for the process, shared through Redis when it is configured: the
     // per-host rate belongs to the instance we crawl, not to a replica. `validate`
@@ -104,7 +105,11 @@ async fn main() -> ExitCode {
         // per-host budgets are per replica.
         sync
     };
-    let worker = Worker::new(pool.clone(), Registry::standard(pool, sync), config);
+    let worker = Worker::new(
+        pool.clone(),
+        Registry::standard(pool, sync, refresh),
+        config,
+    );
 
     match worker.run(shutdown_signal()).await {
         Ok(()) => {
