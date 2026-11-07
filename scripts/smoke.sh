@@ -46,6 +46,8 @@ echo "feed, old contract : $(curl -s -H 'x-contract-version: 0.0.1' http://127.0
 echo "feed, unknown host : $(curl -s -H 'x-instance-host: nope.invalid' -H 'authorization: Bearer x' http://127.0.0.1:3000/api/v1/feed/accounts | head -c 200)"
 echo "events, bad body   : HTTP $(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'x-instance-host: nope.invalid' -H 'authorization: Bearer x' -H 'content-type: application/json' -d '{}' http://127.0.0.1:3000/api/v1/events)"
 
+# 400 for both: a missing header is a malformed request, and a bad path segment is
+# rejected before any instance is contacted.
 echo "undo, no headers  : HTTP $(curl -s -o /dev/null -w '%{http_code}' -X DELETE http://127.0.0.1:3000/api/v1/feedback/1)"
 echo "undo, bad id      : HTTP $(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H 'x-instance-host: nope.invalid' -H 'authorization: Bearer x' http://127.0.0.1:3000/api/v1/feedback/not-a-number)"
 

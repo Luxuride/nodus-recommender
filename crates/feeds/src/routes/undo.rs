@@ -33,10 +33,12 @@ pub async fn lift(
     Path(item_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
+    // Parsed before authentication on purpose: a malformed path is a malformed
+    // request no matter who sent it, and answering `400` without touching an instance
+    // keeps a typo from costing a token verification round trip.
+    let item_id = parse_item_id(&item_id)?;
     let credentials = Credentials::from_headers(&headers)?;
     let caller = authenticate(&state, credentials).await?;
-
-    let item_id = parse_item_id(&item_id)?;
     let Some(lifted) = feedback::lift(&state.pool, caller.user.id, item_id).await? else {
         return Err(ApiError::NotFound);
     };
