@@ -7,9 +7,9 @@
 
 use std::time::Duration;
 
-use nodus_instance_api::model::{LocalId, PageParams, Status, Visibility};
-use nodus_instance_api::{Error as InstanceError, Instance, InstanceApi};
-use nodus_instance_rest::HttpInstance;
+use nodus_instance::model::{LocalId, PageParams, Status, Visibility};
+use nodus_instance::{Error as InstanceError, Instance, InstanceApi};
+use nodus_instance::HttpInstance;
 use nodus_store::accounts;
 use nodus_store::models::Account;
 use nodus_store::statuses::{self, NewStatus};

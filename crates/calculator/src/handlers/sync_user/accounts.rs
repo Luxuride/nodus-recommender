@@ -9,8 +9,8 @@
 use core::fmt::{self, Write as _};
 use std::time::Duration;
 
-use nodus_instance_api::InstanceApi;
-use nodus_instance_rest::HttpInstance;
+use nodus_instance::InstanceApi;
+use nodus_instance::HttpInstance;
 use nodus_store::accounts;
 use nodus_store::crypto::fingerprint as token_fingerprint;
 use nodus_store::models::NewAccount;

@@ -3,7 +3,7 @@
 //! These exercise the pure helpers behind the token loop; they never touch the
 //! network or the database.
 
-use nodus_instance_api::Error as InstanceError;
+use nodus_instance::Error as InstanceError;
 use uuid::Uuid;
 
 use super::accounts::Token;

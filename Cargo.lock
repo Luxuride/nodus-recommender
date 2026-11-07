@@ -1276,8 +1276,7 @@ dependencies = [
  "futures",
  "nodus-cache",
  "nodus-core",
- "nodus-instance-api",
- "nodus-instance-rest",
+ "nodus-instance",
  "nodus-shared",
  "nodus-store",
  "serde",
@@ -1335,29 +1334,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "nodus-instance-api"
+name = "nodus-instance"
 version = "0.1.0"
 dependencies = [
- "nodus-instance-model",
- "thiserror 2.0.21",
- "url",
-]
-
-[[package]]
-name = "nodus-instance-model"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "nodus-instance-rest"
-version = "0.1.0"
-dependencies = [
- "nodus-instance-api",
  "reqwest",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
  "url",
 ]
 
