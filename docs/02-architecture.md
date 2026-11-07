@@ -172,7 +172,7 @@ The point of the split is that each service can be protected independently.
 
 ```text
 nodus/
-├── sdk/          nodus-shared, nodus-instance, nodus-sdk   (git repo)
+├── sdk/          nodus-shared, nodus-instance, nodus-protocol, nodus-sdk   (git repo)
 ├── recommender/  core, store, feeds, calculator            (git repo)
 │   └── docs/     this document set
 └── web/          the Leptos client                          (git repo)
@@ -211,6 +211,7 @@ container, which is the supported local setup.
 | --- | --- | --- |
 | `nodus-core` | lib, pure, wasm-safe | domain types, similarity, candidate generation, scoring, diversity, reason formatting. No I/O, no clock, no async. |
 | `nodus-shared` | lib, wasm-safe (sdk) | wire DTOs shared by API and client (serde). The single source of truth for the HTTP contract. |
+| `nodus-protocol` | lib (sdk) | The Nodus extensions on top of Mastodon: `/api/v1/meta` capabilities, typed event subscriptions, batch requests. Deliberately separate from `nodus-instance`, so the compatibility crate cannot grow a Nodus-only assumption. |
 | `nodus-instance` | lib, native + wasm (sdk) | Mastodon domain model plus `InstanceApi` (the operations as a trait). Transports are feature-gated: `reqwest` on native, `gloo-net`/`web-sys` on wasm. One surface, no duplicated endpoint definitions. |
 | `nodus-sdk` | lib, wasm-safe (sdk) | client state machine: `AppState`, `Command`, `Sdk<I, D, P, C>` over four ports (`InstanceApi`, `Discovery`, `Persistence`, `Clock`). No framework dependency, no I/O in `dispatch`. |
 | `nodus-store` | lib | the only crate that writes SQL: sqlx repositories, migrations. |
