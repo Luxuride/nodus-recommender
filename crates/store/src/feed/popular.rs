@@ -27,7 +27,8 @@ use super::candidate::Candidate;
 ///
 /// `affinity` is `1.0`, `support` is `0` and `sources` is empty, so a reader can tell
 /// this row apart from a calculated one; [`super::candidate::Candidate::last_shown_at`],
-/// `seen_count_7d`, `rejected_kind`, `rejected_at` and `impressions` are empty because
+/// `seen_count_7d`, `rejected_kind`, `rejected_at`, `impressions` and the
+/// follow-through counters are empty because
 /// this rung has no impression history to read.
 ///
 /// # Errors
@@ -51,6 +52,9 @@ pub async fn popular_candidates(
              NULL::timestamptz AS last_shown_at, 0::integer AS seen_count_7d, \
              NULL::text AS rejected_kind, NULL::timestamptz AS rejected_at, \
              0::integer AS impressions, \
+             NULL::integer AS follow_through_shown, \
+             NULL::integer AS follow_through_followed, \
+             NULL::float8 AS expected_follow_rate, \
              a.acct::text AS acct, \
              a.display_name, a.note, a.avatar_url, a.followers_count, a.bot, \
              a.last_status_at, a.instance_host::text AS instance_host \

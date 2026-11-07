@@ -23,10 +23,12 @@ use std::time::Duration;
 
 use nodus_store::models::Job;
 
+mod recompute_follow_through;
 mod recompute_similarity;
 mod refresh_account;
 mod sync_user;
 
+pub use recompute_follow_through::RecomputeFollowThrough;
 pub use recompute_similarity::RecomputeSimilarity;
 pub use refresh_account::{RefreshAccount, RefreshConfig};
 pub use sync_user::{SyncConfig, SyncUser};
@@ -171,7 +173,8 @@ impl Registry {
         let mut registry = Self::new();
         registry.register(Arc::new(SyncUser::new(pool.clone(), sync)));
         registry.register(Arc::new(RefreshAccount::new(pool.clone(), refresh)));
-        registry.register(Arc::new(RecomputeSimilarity::new(pool)));
+        registry.register(Arc::new(RecomputeSimilarity::new(pool.clone())));
+        registry.register(Arc::new(RecomputeFollowThrough::new(pool)));
         registry
     }
 

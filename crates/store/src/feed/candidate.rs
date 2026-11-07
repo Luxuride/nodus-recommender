@@ -44,6 +44,16 @@ pub struct Candidate {
     /// evidence, two hundred are not, so the same rejection means less to a user
     /// who has barely seen the account.
     pub impressions: i32,
+    /// Times this account was shown instance-wide in the evidence window.
+    ///
+    /// `None` when no counters exist yet: an account nobody has been shown has no
+    /// follow-through, and the ranker must not read that as "shown, never
+    /// followed" (D29).
+    pub follow_through_shown: Option<i32>,
+    /// Times a user followed it after one of those impressions.
+    pub follow_through_followed: Option<i32>,
+    /// The instance-wide baseline stored with the counters (D29).
+    pub expected_follow_rate: Option<f64>,
     /// `user` or `user@host`.
     pub acct: String,
     /// Display name, when the account set one.
@@ -92,11 +102,15 @@ pub async fn candidates(
              impressions.seen AS seen_count_7d, \
              rej.kind AS rejected_kind, rej.server_ts AS rejected_at, \
              total_impressions.seen AS impressions, \
+             ft.impressions AS follow_through_shown, \
+             ft.follows AS follow_through_followed, \
+             ft.expected_rate AS expected_follow_rate, \
              a.acct::text AS acct, \
              a.display_name, a.note, a.avatar_url, a.followers_count, a.bot, \
              a.last_status_at, a.instance_host::text AS instance_host \
          FROM account_affinity af \
          JOIN account a ON a.id = af.account_id \
+         LEFT JOIN account_follow_through ft ON ft.account_id = af.account_id \
          LEFT JOIN me ON true \
          LEFT JOIN LATERAL ( \
              SELECT ri.served_at FROM recommendation_item ri \

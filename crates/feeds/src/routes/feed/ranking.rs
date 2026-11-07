@@ -1,5 +1,6 @@
 //! Ranking: how a stored candidate becomes a score and the reason shown with it.
 
+use nodus_core::damping;
 use nodus_core::drift;
 use nodus_core::evidence::{
     NOT_INTERESTED_HALF_LIFE_DAYS, base_penalty, normalized_penalty, penalty_half_life,
@@ -56,11 +57,39 @@ pub(super) fn score(
             },
             // Lift needs an expected follow rate per account, which the calculator
             // does not produce yet; 1.0 leaves the term neutral.
-            popularity_lift: 1.0,
+            popularity_lift: popularity_lift(candidate),
         },
         weights,
     )
 }
+
+/// How much the instance's own history moves this candidate's affinity (D29).
+///
+/// `1.0` until the counters exist *and* the account has been shown enough times to
+/// mean something: the lift is evidence about this recommendation, not a prior about
+/// the account, so thin evidence must leave the term neutral. The two rates are
+/// clamped by [`damping::popularity_lift`], which is where the floor and ceiling on
+/// a noisy ratio live.
+fn popularity_lift(candidate: &Candidate) -> f64 {
+    let (Some(shown), Some(followed), Some(expected)) = (
+        candidate.follow_through_shown,
+        candidate.follow_through_followed,
+        candidate.expected_follow_rate,
+    ) else {
+        return 1.0;
+    };
+    if shown < MIN_COUNTER_IMPRESSIONS || expected <= 0.0 {
+        return 1.0;
+    }
+    let observed = f64::from(followed) / f64::from(shown);
+    damping::popularity_lift(1.0, observed, expected)
+}
+
+/// Fewest impressions before the counters can move a score.
+///
+/// Twenty is roughly one follow-through event at a one-in-twenty baseline: below it,
+/// a single follow would read as a doubling, which is noise dressed as evidence.
+const MIN_COUNTER_IMPRESSIONS: i32 = 20;
 
 /// How strongly the stored rejection for `candidate` still counts at `now`.
 ///
@@ -163,6 +192,9 @@ mod tests {
             rejected_kind: rejected.map(|(kind, _)| kind.to_owned()),
             rejected_at: rejected.map(|(_, age_days)| now - Duration::days(age_days)),
             impressions,
+            follow_through_shown: None,
+            follow_through_followed: None,
+            expected_follow_rate: None,
             acct: "alice@remote.test".to_owned(),
             display_name: None,
             note: None,
