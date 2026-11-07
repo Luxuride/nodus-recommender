@@ -15,7 +15,7 @@
 //! file holds the snapshot a second page reads back. Everything is re-exported here,
 //! so `feed::…` callers did not move.
 
-use sqlx::PgPool;
+use sqlx::{PgPool, postgres::types::PgInterval};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -135,6 +135,66 @@ pub async fn page(
     .bind(after_item_id)
     .bind(limit)
     .fetch_all(pool)
+    .await
+}
+
+/// How old the newest snapshot for this user is, when one is still live.
+///
+/// One row, newest first: the feed is served from a snapshot, and the only question
+/// the route asks here is "is there something to reuse". A snapshot's age is taken
+/// from its newest item because every item of a snapshot is written in one
+/// statement and therefore shares a `served_at`.
+///
+/// # Errors
+///
+/// Propagates [`sqlx::Error`].
+pub async fn live_snapshot(
+    pool: &PgPool,
+    user_id: Uuid,
+    max_age: PgInterval,
+) -> Result<Option<(Uuid, f64)>, sqlx::Error> {
+    // `age_seconds` keeps the comparison in SQL: a client clock and a replica clock
+    // disagree, and only the database's `now()` is the one the rows were stamped with.
+    sqlx::query_as::<_, (Uuid, f64)>(
+        "SELECT feed_id, EXTRACT(EPOCH FROM (now() - max(served_at)))::float8 AS age_seconds \
+         FROM recommendation_item \
+         WHERE user_id = $1 AND feed_id IS NOT NULL AND served_at > now() - $2 \
+         GROUP BY feed_id \
+         ORDER BY max(served_at) DESC \
+         LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(max_age)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Determines whether a snapshot may still be continued, and for how long it has existed.
+///
+/// `Some(age_seconds)` means the snapshot exists and is younger than `max_age`;
+/// `Some` with a larger age means the client is holding a cursor into an expired
+/// feed and must be told to start again (410), rather than silently receiving the
+/// tail of a ranking the model has since replaced. `None` means the snapshot does
+/// not exist at all, which is a different answer: the client's cursor is bogus.
+///
+/// # Errors
+///
+/// Propagates [`sqlx::Error`].
+pub async fn snapshot_age(
+    pool: &PgPool,
+    user_id: Uuid,
+    feed_id: Uuid,
+) -> Result<Option<f64>, sqlx::Error> {
+    // `max(served_at)` over zero rows is NULL, and aggregating always yields exactly
+    // one row, so the `None` case arrives as a NULL value rather than as a missing row.
+    sqlx::query_scalar::<_, Option<f64>>(
+        "SELECT (EXTRACT(EPOCH FROM (now() - max(served_at))))::float8 \
+         FROM recommendation_item \
+         WHERE user_id = $1 AND feed_id = $2",
+    )
+    .bind(user_id)
+    .bind(feed_id)
+    .fetch_one(pool)
     .await
 }
 

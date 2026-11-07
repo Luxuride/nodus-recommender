@@ -13,6 +13,11 @@ pub struct FeedParams {
     pub(super) limit: Option<i64>,
     /// Cursor returned by the previous page.
     pub(super) cursor: Option<String>,
+    /// Asks for a new ranking even though a live snapshot could be reused.
+    ///
+    /// Only the user can decide that the list they are looking at is stale; the
+    /// server's reuse window is a consistency guarantee, not a throttle.
+    pub(super) refresh: Option<bool>,
 }
 
 /// Smallest page the endpoint will serve.

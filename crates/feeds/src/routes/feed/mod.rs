@@ -25,6 +25,7 @@ use nodus_core::ranking::RankingWeights;
 use nodus_shared::{AccountFeed, AccountItem};
 use nodus_store::feed::{self, Candidate, NewItem};
 use std::collections::HashMap;
+use std::time::Duration;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -70,6 +71,7 @@ pub async fn accounts(
         let (feed_id, after) = cursor::decode(cursor).ok_or_else(|| {
             ApiError::bad_request("invalid_cursor", "cursor was not issued by this service")
         })?;
+        ensure_continuable(&state, user.id, feed_id).await?;
         let rows = feed::page(&state.pool, user.id, feed_id, after, limit + 1).await?;
         let (page, more) = split(rows, limit);
         let items = page.into_iter().map(snapshot_item).collect::<Vec<_>>();
@@ -83,6 +85,17 @@ pub async fn accounts(
             items,
             next_cursor,
         )));
+    }
+
+    // A first page normally means "give me a fresh ranking", but not within the reuse
+    // window: two tabs opened a minute apart must show the same accounts, or the user
+    // sees one list, clicks a reason, and finds a different list behind it. `refresh`
+    // is the caller's way to say it wants a new one anyway.
+    if params.refresh != Some(true)
+        && let Some(reused) =
+            reuse_live_snapshot(&state, user, limit, age, degraded.clone()).await?
+    {
+        return Ok(reused);
     }
 
     // First page: rank, record, then answer.
@@ -186,4 +199,88 @@ fn seed_of(feed_id: Uuid) -> u64 {
     let mut seed = [0_u8; 8];
     seed.copy_from_slice(&bytes[..8]);
     u64::from_be_bytes(seed)
+}
+
+/// How long a snapshot may be reused for a first page, and how long it may be continued.
+///
+/// The two windows are different on purpose. Reuse is a consistency guarantee: every
+/// request inside it sees the same list. Continuation is a lifetime guarantee: it
+/// only says a reader who started scrolling can finish, because their cursor points
+/// into a ranking that still exists.
+const SNAPSHOT_REUSE: Duration = Duration::from_secs(10 * 60);
+
+/// The reuse window as a Postgres interval, so the comparison happens in the database.
+///
+/// SQL rather than Rust because `now()` is the clock the rows were stamped with; a
+/// replica's own clock would answer "how old is this" differently on every pod.
+fn snapshot_reuse_interval() -> sqlx::postgres::types::PgInterval {
+    sqlx::postgres::types::PgInterval {
+        months: 0,
+        days: 0,
+        microseconds: i64::try_from(SNAPSHOT_REUSE.as_micros()).unwrap_or(i64::MAX),
+    }
+}
+const SNAPSHOT_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Refuses to continue a snapshot that has outlived [`SNAPSHOT_TTL`].
+///
+/// `410 Gone` rather than an empty page, because the two are different facts. An
+/// empty page would look like "the feed ran out"; the truth is "this cursor can never
+/// produce another item", and the client's recovery (start a new feed) is the same in
+/// both the expired and the never-existed case — so both answer the same code with
+/// different sentences.
+async fn ensure_continuable(
+    state: &AppState,
+    user_id: Uuid,
+    feed_id: Uuid,
+) -> Result<(), ApiError> {
+    let age = feed::snapshot_age(&state.pool, user_id, feed_id).await?;
+    let limit = SNAPSHOT_TTL.as_secs_f64();
+    match age {
+        Some(seconds) if seconds <= limit => Ok(()),
+        Some(seconds) => Err(ApiError::Gone {
+            code: "feed_expired",
+            message: format!(
+                "this feed snapshot is {:.1} hours old; start a new one",
+                seconds / 3600.0
+            ),
+        }),
+        None => Err(ApiError::Gone {
+            code: "feed_expired",
+            message: "this feed snapshot no longer exists; start a new one".to_owned(),
+        }),
+    }
+}
+
+/// Answers from the snapshot this user is already inside, when one is still fresh.
+///
+/// Split out of the handler because it is a different request outcome with the same
+/// wire shape: nothing is ranked, nothing is written, and the only question is whether
+/// the recent past is still allowed to be the present. `refresh=true` skips it.
+async fn reuse_live_snapshot(
+    state: &AppState,
+    user: &nodus_store::models::AppUser,
+    limit: i64,
+    age: Option<f64>,
+    degraded: Option<String>,
+) -> Result<Option<Json<AccountFeed>>, ApiError> {
+    let Some((feed_id, age_seconds)) =
+        feed::live_snapshot(&state.pool, user.id, snapshot_reuse_interval()).await?
+    else {
+        return Ok(None);
+    };
+    tracing::debug!(%feed_id, age_seconds, "reusing a live snapshot");
+    let rows = feed::page(&state.pool, user.id, feed_id, 0, limit + 1).await?;
+    let (page, more) = split(rows, limit);
+    let items = page.into_iter().map(snapshot_item).collect::<Vec<_>>();
+    let next_cursor =
+        more.then(|| cursor::encode(feed_id, items.last().map_or(0, |item| item.item_id)));
+    Ok(Some(Json(envelope(
+        user.sync_enabled,
+        age,
+        degraded,
+        feed_id,
+        items,
+        next_cursor,
+    ))))
 }

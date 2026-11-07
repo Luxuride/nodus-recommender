@@ -28,6 +28,14 @@ pub enum ApiError {
     /// The token is valid but the resource is not ours to show.
     #[error("not found")]
     NotFound,
+    /// The resource existed and no longer does: a feed snapshot that has expired.
+    #[error("{code}")]
+    Gone {
+        /// Stable machine-readable code.
+        code: &'static str,
+        /// Human-readable explanation, including what to do next.
+        message: String,
+    },
     /// The client speaks a contract this build no longer honours.
     #[error("client contract {client} is older than {min}")]
     ClientTooOld {
@@ -89,7 +97,9 @@ impl ApiError {
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {
-            Self::BadRequest { code, .. } | Self::Unavailable { code, .. } => code,
+            Self::BadRequest { code, .. }
+            | Self::Unavailable { code, .. }
+            | Self::Gone { code, .. } => code,
             Self::Unauthorized => "unauthorized",
             Self::NotFound => "not_found",
             Self::ClientTooOld { .. } => "client_too_old",
@@ -104,6 +114,7 @@ impl ApiError {
             Self::BadRequest { .. } => StatusCode::BAD_REQUEST,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::NotFound => StatusCode::NOT_FOUND,
+            Self::Gone { .. } => StatusCode::GONE,
             Self::ClientTooOld { .. } => StatusCode::UPGRADE_REQUIRED,
             Self::Unavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -114,7 +125,7 @@ impl ApiError {
     #[must_use]
     pub fn client_message(&self) -> String {
         match self {
-            Self::BadRequest { message, .. } => message.clone(),
+            Self::BadRequest { message, .. } | Self::Gone { message, .. } => message.clone(),
             Self::Unauthorized => "a Mastodon access token is required".to_owned(),
             Self::NotFound => "no such resource".to_owned(),
             Self::ClientTooOld { client, min } => format!(

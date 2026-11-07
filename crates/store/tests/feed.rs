@@ -246,6 +246,91 @@ async fn a_snapshot_is_read_back_by_cursor(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn a_snapshot_has_a_reuse_window_and_a_lifetime(pool: PgPool) {
+    users::ensure_instance(&pool, "home.test").await.unwrap();
+    users::ensure_instance(&pool, "remote.test").await.unwrap();
+    let user = users::upsert(&pool, "home.test", 1, "me").await.unwrap();
+    accounts::upsert_many(&pool, &[new_account("remote.test", 10, "alice")])
+        .await
+        .unwrap();
+    let alice = accounts::find_id(&pool, "remote.test", 10)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let feed_id = Uuid::now_v7();
+    feed::persist(
+        &pool,
+        user.id,
+        feed_id,
+        0,
+        &[NewItem {
+            account_id: alice,
+            score: 0.9,
+            reason: serde_json::json!({"code": "similar_user"}),
+        }],
+    )
+    .await
+    .unwrap();
+
+    // Freshly written: reusable for any window, and younger than a day.
+    let reused = feed::live_snapshot(&pool, user.id, minutes(5))
+        .await
+        .unwrap();
+    assert_eq!(reused.map(|(id, _)| id), Some(feed_id));
+    let age = feed::snapshot_age(&pool, user.id, feed_id)
+        .await
+        .unwrap()
+        .expect("a snapshot that exists has an age");
+    assert!(
+        age < 60.0,
+        "a fresh snapshot is seconds old, not hours: {age}"
+    );
+
+    // Backdate it: still readable by cursor, but not reusable, and past its lifetime.
+    sqlx::query(
+        "UPDATE recommendation_item SET served_at = now() - interval '30 hours' \
+         WHERE user_id = $1",
+    )
+    .bind(user.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        feed::live_snapshot(&pool, user.id, minutes(10))
+            .await
+            .unwrap()
+            .is_none(),
+        "a thirty-hour-old snapshot is outside the reuse window"
+    );
+    let age = feed::snapshot_age(&pool, user.id, feed_id)
+        .await
+        .unwrap()
+        .expect("the rows are still there");
+    assert!(
+        age > 24.0 * 3600.0,
+        "thirty hours is more than a day: {age}"
+    );
+
+    // A feed id nobody minted has no age at all -- which the route must not confuse
+    // with "expired": both restart the client, but only one can be explained.
+    assert!(
+        feed::snapshot_age(&pool, user.id, Uuid::now_v7())
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+fn minutes(count: i64) -> sqlx::postgres::types::PgInterval {
+    sqlx::postgres::types::PgInterval {
+        months: 0,
+        days: 0,
+        microseconds: count * 60 * 1_000_000,
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn popular_candidates_exclude_followed_and_order_by_followers(pool: PgPool) {
     users::ensure_instance(&pool, "home.test").await.unwrap();
     users::ensure_instance(&pool, "remote.test").await.unwrap();
