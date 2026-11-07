@@ -17,13 +17,18 @@ use super::candidate::Candidate;
 ///
 /// The exclusions are the same as [`super::candidates`] — followed, dismissed or not
 /// interested, moved, not discoverable — but there is no `account_affinity` join and
-/// no expiry to honour. Order is `followers_count DESC, last_status_at DESC NULLS
+/// no expiry to honour. Rejections stay a plain exclusion here on purpose: this rung
+/// is served because no affinity has been materialised yet, so there is no evidence
+/// either way about whether a rejection has softened. Until the personalised rung can
+/// report decay, silence is safer than re-showing an account the user asked to stop
+/// seeing. Order is `followers_count DESC, last_status_at DESC NULLS
 /// LAST, account_id`: the follower count is the only signal, and the other two make
 /// the order deterministic between rows that tie on it.
 ///
 /// `affinity` is `1.0`, `support` is `0` and `sources` is empty, so a reader can tell
-/// this row apart from a calculated one; [`super::candidate::Candidate::last_shown_at`]
-/// and `seen_count_7d` are empty because this rung has no impression history to read.
+/// this row apart from a calculated one; [`super::candidate::Candidate::last_shown_at`],
+/// `seen_count_7d`, `rejected_kind`, `rejected_at` and `impressions` are empty because
+/// this rung has no impression history to read.
 ///
 /// # Errors
 ///
@@ -44,6 +49,8 @@ pub async fn popular_candidates(
          SELECT a.id AS account_id, 1.0::float8 AS affinity, 0::smallint AS support, \
              ARRAY[]::text[] AS sources, now() AS computed_at, \
              NULL::timestamptz AS last_shown_at, 0::integer AS seen_count_7d, \
+             NULL::text AS rejected_kind, NULL::timestamptz AS rejected_at, \
+             0::integer AS impressions, \
              a.acct::text AS acct, \
              a.display_name, a.note, a.avatar_url, a.followers_count, a.bot, \
              a.last_status_at, a.instance_host::text AS instance_host \

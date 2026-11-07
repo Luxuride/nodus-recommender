@@ -1,6 +1,10 @@
 //! Ranking: how a stored candidate becomes a score and the reason shown with it.
 
 use nodus_core::drift;
+use nodus_core::evidence::{
+    NOT_INTERESTED_HALF_LIFE_DAYS, base_penalty, normalized_penalty, penalty_half_life,
+};
+use nodus_core::labels::EventKind;
 use nodus_core::ranking::{self, CandidateSignals, RankingWeights};
 use nodus_shared::Reason;
 use nodus_store::feed::Candidate;
@@ -9,8 +13,16 @@ use time::format_description::well_known::Rfc3339;
 
 use super::response::since_epoch;
 
-/// Ranks one candidate.
-pub(super) fn score(candidate: &Candidate, weights: RankingWeights, home: &str) -> f64 {
+/// Ranks one candidate as of `now`.
+///
+/// `now` is threaded in rather than read here so the skip decision and the penalty
+/// applied to the same candidate cannot disagree across a clock tick.
+pub(super) fn score(
+    candidate: &Candidate,
+    weights: RankingWeights,
+    home: &str,
+    now: OffsetDateTime,
+) -> f64 {
     let age_days =
         candidate
             .last_status_at
@@ -18,7 +30,7 @@ pub(super) fn score(candidate: &Candidate, weights: RankingWeights, home: &str) 
             .map_or(f64::from(u32::MAX), |last| {
                 let then =
                     OffsetDateTime::parse(&last, &Rfc3339).unwrap_or(OffsetDateTime::UNIX_EPOCH);
-                ((OffsetDateTime::now_utc() - then).as_seconds_f64() / 86_400.0).max(0.0)
+                days_between(now, then)
             });
     ranking::score(
         &CandidateSignals {
@@ -31,13 +43,15 @@ pub(super) fn score(candidate: &Candidate, weights: RankingWeights, home: &str) 
             same_instance: candidate.instance_host == home,
             language_match: false,
             seen_count_7d: u32::try_from(candidate.seen_count_7d).unwrap_or(0),
-            penalty: 0.0,
+            penalty: penalty(candidate, now),
             // A candidate is by definition not followed yet, so there is no follow
             // edge to age; the taste decay applies to the affinity the calculator
             // already aged, not a second time here.
             follow_age_days: None,
             stability: drift::Stability {
-                shown_age_days: candidate.last_shown_at.map(shown_age_days),
+                shown_age_days: candidate
+                    .last_shown_at
+                    .map(|served_at| days_between(now, served_at)),
                 previous_rank: None,
             },
             // Lift needs an expected follow rate per account, which the calculator
@@ -48,12 +62,51 @@ pub(super) fn score(candidate: &Candidate, weights: RankingWeights, home: &str) 
     )
 }
 
-/// How long ago an account was last shown to this user, in fractional days.
+/// How strongly the stored rejection for `candidate` still counts at `now`.
 ///
-/// A reminder that `served_at` can be in the future after a clock change, and a
-/// negative age would turn into a stability bonus larger than the weight allows.
-fn shown_age_days(served_at: OffsetDateTime) -> f64 {
-    ((OffsetDateTime::now_utc() - served_at).as_seconds_f64() / 86_400.0).max(0.0)
+/// `0.0` for no rejection and for a kind this build does not recognise: `kind` is
+/// stored as text, and a value written by a newer producer must not be read as
+/// evidence against an account.
+fn penalty(candidate: &Candidate, now: OffsetDateTime) -> f64 {
+    let Some(stored) = candidate.rejected_kind.as_deref() else {
+        return 0.0;
+    };
+    let kind = match stored {
+        "dismiss" => EventKind::Dismiss,
+        "not_interested" => EventKind::NotInterested,
+        _ => return 0.0,
+    };
+    let age_days = candidate
+        .rejected_at
+        .map_or(0.0, |recorded| days_between(now, recorded));
+    normalized_penalty(
+        base_penalty(kind),
+        age_days,
+        penalty_half_life(kind).unwrap_or(NOT_INTERESTED_HALF_LIFE_DAYS),
+        u32::try_from(candidate.impressions).unwrap_or(0),
+    )
+}
+
+/// Whether the rejection is a fresh explicit instruction the feed must obey.
+///
+/// Only `not_interested` inside its first half-life is a hard skip: it is the one
+/// rejection stated as "stop", so holding it for a month is what the user asked
+/// for. A `dismiss` is a nudge ("show me less"), and a stale `not_interested` has
+/// decayed far enough that later positive evidence can outvote it. Both stay in the
+/// list with a penalty, because a permanent exclusion is what D26 rejects.
+pub(super) fn is_fresh_rejection(candidate: &Candidate, now: OffsetDateTime) -> bool {
+    candidate.rejected_kind.as_deref() == Some("not_interested")
+        && candidate
+            .rejected_at
+            .is_some_and(|recorded| days_between(now, recorded) < NOT_INTERESTED_HALF_LIFE_DAYS)
+}
+
+/// Fractional days from `then` to `now`, never negative.
+///
+/// A stored timestamp can be in the future after a clock change, and a negative age
+/// would turn into a stability bonus larger than the weight allows.
+fn days_between(now: OffsetDateTime, then: OffsetDateTime) -> f64 {
+    ((now - then).as_seconds_f64() / 86_400.0).max(0.0)
 }
 
 /// The reason shown to the user, derived from which sources produced the candidate.
@@ -88,5 +141,67 @@ pub(super) fn fallback_reason() -> Reason {
         support: 0,
         sample_followers: Vec::new(),
         via: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_fresh_rejection, penalty};
+    use nodus_store::feed::Candidate;
+    use time::{Duration, OffsetDateTime};
+
+    fn candidate(rejected: Option<(&str, i64)>, impressions: i32) -> Candidate {
+        let now = OffsetDateTime::now_utc();
+        Candidate {
+            account_id: 1,
+            affinity: 0.5,
+            support: 1,
+            sources: vec!["similar_user".to_owned()],
+            computed_at: now,
+            last_shown_at: None,
+            seen_count_7d: 0,
+            rejected_kind: rejected.map(|(kind, _)| kind.to_owned()),
+            rejected_at: rejected.map(|(_, age_days)| now - Duration::days(age_days)),
+            impressions,
+            acct: "alice@remote.test".to_owned(),
+            display_name: None,
+            note: None,
+            avatar_url: None,
+            followers_count: 10,
+            bot: false,
+            last_status_at: None,
+            instance_host: "remote.test".to_owned(),
+        }
+    }
+
+    #[test]
+    fn only_a_fresh_not_interested_is_withheld() {
+        let now = OffsetDateTime::now_utc();
+        assert!(is_fresh_rejection(
+            &candidate(Some(("not_interested", 3)), 5),
+            now
+        ));
+        assert!(!is_fresh_rejection(
+            &candidate(Some(("not_interested", 45)), 5),
+            now
+        ));
+        // A dismiss is a nudge, not an instruction, however recent.
+        assert!(!is_fresh_rejection(
+            &candidate(Some(("dismiss", 1)), 5),
+            now
+        ));
+        assert!(!is_fresh_rejection(&candidate(None, 5), now));
+    }
+
+    #[test]
+    fn a_rejection_becomes_a_decaying_penalty() {
+        let now = OffsetDateTime::now_utc();
+        assert!(penalty(&candidate(None, 10), now) < f64::EPSILON);
+        // A kind stored by a newer producer is not evidence this build can read.
+        assert!(penalty(&candidate(Some(("muted", 0)), 10), now) < f64::EPSILON);
+        let fresh = penalty(&candidate(Some(("not_interested", 0)), 5), now);
+        let aged = penalty(&candidate(Some(("not_interested", 60)), 5), now);
+        assert!(fresh > aged);
+        assert!(aged > 0.0);
     }
 }

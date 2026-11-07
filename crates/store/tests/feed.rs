@@ -25,7 +25,7 @@ fn new_account(host: &str, mastodon_id: i64, acct: &str) -> NewAccount {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn candidates_exclude_followed_dismissed_and_expired(pool: PgPool) {
+async fn a_rejection_is_reported_rather_than_hidden(pool: PgPool) {
     users::ensure_instance(&pool, "home.test").await.unwrap();
     users::ensure_instance(&pool, "remote.test").await.unwrap();
     let user = users::upsert(&pool, "home.test", 1, "me").await.unwrap();
@@ -69,7 +69,9 @@ async fn candidates_exclude_followed_dismissed_and_expired(pool: PgPool) {
         .unwrap()
         .unwrap();
 
-    // carol is already followed, dave was dismissed, erin's affinity expired.
+    // carol is already followed and erin's affinity expired; dave was dismissed but
+    // must still come back as a candidate, carrying the rejection so the ranker can
+    // decay it instead of the query hiding him forever (D26).
     accounts::replace_follows(&pool, me, &[carol], "server_sync")
         .await
         .unwrap();
@@ -94,10 +96,36 @@ async fn candidates_exclude_followed_dismissed_and_expired(pool: PgPool) {
     .await
     .unwrap();
 
+    // alice was served twice and clicked once. `impressions` is the penalty's
+    // shrinkage denominator and must count impressions only, not every event.
+    let alice_item = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO recommendation_item (user_id, account_id, kind, score, model_version) \
+         VALUES ($1, $2, 'account', 0.9, 0) RETURNING id",
+    )
+    .bind(user.id)
+    .bind(alice)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    for (kind, key) in [("impression", 10_u8), ("impression", 11), ("click", 12)] {
+        sqlx::query(
+            "INSERT INTO interaction_event (user_id, item_id, kind, client_ts, idempotency_key) \
+             VALUES ($1, $2, $3, now(), $4)",
+        )
+        .bind(user.id)
+        .bind(alice_item)
+        .bind(kind)
+        .bind(vec![key; 32])
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+    }
+
     for (account, affinity, expired) in [
         (alice, 0.9_f32, false),
         (bob, 0.5, false),
         (carol, 0.95, false),
+        (dave, 0.4, false),
         (erin, 0.99, true),
     ] {
         sqlx::query(
@@ -118,11 +146,23 @@ async fn candidates_exclude_followed_dismissed_and_expired(pool: PgPool) {
     let accts: Vec<&str> = candidates.iter().map(|c| c.acct.as_str()).collect();
     assert_eq!(
         accts,
-        vec!["alice", "bob"],
+        vec!["alice", "bob", "dave"],
         "unexpected candidates: {accts:?}"
     );
     assert_eq!(candidates[0].support, 2);
     assert_eq!(candidates[0].instance_host, "remote.test");
+    assert_eq!(
+        candidates[0].impressions, 2,
+        "only impression events feed the shrinkage prior"
+    );
+    assert!(candidates[0].rejected_kind.is_none());
+
+    let dave_row = candidates
+        .iter()
+        .find(|candidate| candidate.acct == "dave")
+        .expect("a dismissed account is still a candidate");
+    assert_eq!(dave_row.rejected_kind.as_deref(), Some("dismiss"));
+    assert!(dave_row.rejected_at.is_some());
 
     // A limit smaller than the candidate set must come back truncated, not extended.
     let limited = feed::candidates(&pool, user.id, 1).await.unwrap();
@@ -293,6 +333,9 @@ async fn popular_candidates_exclude_followed_and_order_by_followers(pool: PgPool
     assert_eq!(popular[0].sources, Vec::<String>::new());
     assert_eq!(popular[0].seen_count_7d, 0);
     assert!(popular[0].last_shown_at.is_none());
+    assert!(popular[0].rejected_kind.is_none());
+    assert!(popular[0].rejected_at.is_none());
+    assert_eq!(popular[0].impressions, 0);
     assert_eq!(popular[0].followers_count, 200);
 
     let limited = feed::popular_candidates(&pool, user.id, 1).await.unwrap();

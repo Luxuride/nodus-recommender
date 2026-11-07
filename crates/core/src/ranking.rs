@@ -102,9 +102,10 @@ pub struct CandidateSignals {
     ///
     /// Produced by [`crate::evidence::normalized_penalty`]: the stored penalty
     /// decayed by its half-life, shrunk by the number of impressions that back it,
-    /// and normalised so `1.0` is a fresh explicit rejection. A candidate with no
-    /// rejection history is `0.0`, which is also [`Default`]'s value — absence of
-    /// evidence is not evidence.
+    /// and normalised so `1.0` is a *fully observed* explicit rejection. One
+    /// impression is not a pattern, so a single rejection is worth a fraction of the
+    /// unit (D27). A candidate with no rejection history is `0.0`, which is also
+    /// [`Default`]'s value — absence of evidence is not evidence.
     pub penalty: f64,
     /// Days since the user's follow that contributes to this candidate, if any.
     ///

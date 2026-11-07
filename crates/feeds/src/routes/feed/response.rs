@@ -1,7 +1,7 @@
 //! The wire shape: stored candidates, timestamps and the response envelope.
 
 use nodus_shared::{AccountFeed, AccountItem, CONTRACT_VERSION, FeedAccount};
-use nodus_store::feed::Candidate;
+use nodus_store::feed::{Candidate, SnapshotItem};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
@@ -18,6 +18,32 @@ pub(super) fn feed_account(candidate: &Candidate) -> FeedAccount {
         last_status_at: candidate.last_status_at.and_then(since_epoch),
         bot: candidate.bot,
         already_following: false,
+    }
+}
+
+/// Converts a stored snapshot row into the wire shape.
+///
+/// Page two onward reads what page one stored, so this conversion has to exist for
+/// the stored row as well as for the live candidate. Keeping them adjacent in this
+/// file is what stops the two paths drifting apart as fields are added.
+pub(super) fn snapshot_item(row: SnapshotItem) -> AccountItem {
+    AccountItem {
+        item_id: row.id,
+        account: FeedAccount {
+            id: row.account_id.to_string(),
+            acct: row.acct,
+            display_name: row.display_name.unwrap_or_default(),
+            note: row.note.unwrap_or_default(),
+            avatar_url: row.avatar_url.unwrap_or_default(),
+            followers_count: i64::from(row.followers_count),
+            last_status_at: row.last_status_at.and_then(since_epoch),
+            bot: row.bot,
+            already_following: false,
+        },
+        reason: serde_json::from_value(row.reason).unwrap_or_else(|error| {
+            tracing::warn!(item_id = row.id, %error, "stored reason did not decode");
+            super::ranking::fallback_reason()
+        }),
     }
 }
 

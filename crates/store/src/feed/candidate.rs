@@ -30,6 +30,20 @@ pub struct Candidate {
     /// four times without tapping it stops seeing it: exposure without interaction
     /// is a negative signal, not a neutral one.
     pub seen_count_7d: i32,
+    /// Kind of the most recent rejection (`dismiss` or `not_interested`), if any.
+    ///
+    /// Reported instead of filtered so the ranker can decay it (D26): an account
+    /// excluded forever can never be recovered by the positive evidence that
+    /// follows a changed mind.
+    pub rejected_kind: Option<String>,
+    /// When that rejection was recorded.
+    pub rejected_at: Option<OffsetDateTime>,
+    /// How many impressions this user has had of this account, all time.
+    ///
+    /// The shrinkage denominator for the rejection: one impression is thin
+    /// evidence, two hundred are not, so the same rejection means less to a user
+    /// who has barely seen the account.
+    pub impressions: i32,
     /// `user` or `user@host`.
     pub acct: String,
     /// Display name, when the account set one.
@@ -51,9 +65,11 @@ pub struct Candidate {
 /// Candidates for one user, best first, with the exclusions the feed must apply.
 ///
 /// Excluded are: accounts the user already follows (a recommendation to follow
-/// someone you follow is not a recommendation), accounts they dismissed or marked
-/// not interested, expired affinity, and accounts whose owner said they are not
-/// discoverable.
+/// someone you follow is not a recommendation), expired affinity, and accounts
+/// whose owner said they are not discoverable. A rejection is deliberately not an
+/// exclusion: the most recent `dismiss` or `not_interested` and the user's
+/// impression count travel with the row so the ranker can turn them into a
+/// decaying penalty (D26).
 ///
 /// # Errors
 ///
@@ -74,6 +90,8 @@ pub async fn candidates(
          SELECT af.account_id, af.affinity::float8 AS affinity, af.support, af.sources, \
              af.computed_at, shown.served_at AS last_shown_at, \
              impressions.seen AS seen_count_7d, \
+             rej.kind AS rejected_kind, rej.server_ts AS rejected_at, \
+             total_impressions.seen AS impressions, \
              a.acct::text AS acct, \
              a.display_name, a.note, a.avatar_url, a.followers_count, a.bot, \
              a.last_status_at, a.instance_host::text AS instance_host \
@@ -93,6 +111,21 @@ pub async fn candidates(
                  AND e.kind = 'impression' \
                  AND e.server_ts > now() - interval '7 days' \
          ) AS impressions ON true \
+         LEFT JOIN LATERAL ( \
+             SELECT e.kind, e.server_ts \
+             FROM interaction_event e \
+             JOIN recommendation_item ri ON ri.id = e.item_id \
+             WHERE e.user_id = $1 AND ri.account_id = af.account_id \
+                 AND e.kind IN ('dismiss', 'not_interested') \
+             ORDER BY e.server_ts DESC LIMIT 1 \
+         ) AS rej ON true \
+         LEFT JOIN LATERAL ( \
+             SELECT count(*)::integer AS seen \
+             FROM interaction_event e \
+             JOIN recommendation_item ri ON ri.id = e.item_id \
+             WHERE e.user_id = $1 AND ri.account_id = af.account_id \
+                 AND e.kind = 'impression' \
+         ) AS total_impressions ON true \
          WHERE af.user_id = $1 \
              AND af.expires_at > now() \
              AND af.account_id IS DISTINCT FROM me.account_id \
@@ -101,13 +134,6 @@ pub async fn candidates(
              AND NOT EXISTS ( \
                  SELECT 1 FROM follow_edge f \
                  WHERE f.follower_id = me.account_id AND f.followee_id = af.account_id \
-             ) \
-             AND NOT EXISTS ( \
-                 SELECT 1 FROM interaction_event e \
-                 JOIN recommendation_item ri ON ri.id = e.item_id \
-                 WHERE e.user_id = $1 \
-                     AND ri.account_id = af.account_id \
-                     AND e.kind IN ('dismiss', 'not_interested') \
              ) \
          ORDER BY af.affinity DESC, af.account_id \
          LIMIT $2",

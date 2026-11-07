@@ -32,7 +32,8 @@ pub use drift::{
     STABILITY_TAU_DAYS, Stability, TASTE_TAU_DAYS, recency_weight, stability_bonus, weighted_follow,
 };
 pub use evidence::{
-    PENALTY_NORMALISER, confidence, decayed_penalty, dwell_correction, normalized_penalty, shrink,
+    PENALTY_NORMALISER, base_penalty, confidence, decayed_penalty, dwell_correction,
+    normalized_penalty, shrink,
 };
 pub use idf::{follow_weight, status_weight, target_weight};
 pub use labels::{EventKind, label, label_with_dwell};

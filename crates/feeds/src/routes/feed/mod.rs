@@ -22,14 +22,15 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use nodus_core::ranking::RankingWeights;
-use nodus_shared::{AccountFeed, AccountItem, FeedAccount};
-use nodus_store::feed::{self, NewItem};
+use nodus_shared::{AccountFeed, AccountItem};
+use nodus_store::feed::{self, Candidate, NewItem};
 use std::collections::HashMap;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use self::params::{DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT, contract_gate, degraded_flag, split};
-use self::ranking::{fallback_reason, reason_for, score};
-use self::response::{envelope, feed_account, since_epoch};
+use self::ranking::{is_fresh_rejection, reason_for, score};
+use self::response::{envelope, feed_account, snapshot_item};
 
 mod params;
 mod ranking;
@@ -70,27 +71,7 @@ pub async fn accounts(
         })?;
         let rows = feed::page(&state.pool, user.id, feed_id, after, limit + 1).await?;
         let (page, more) = split(rows, limit);
-        let items = page
-            .into_iter()
-            .map(|row| AccountItem {
-                item_id: row.id,
-                account: FeedAccount {
-                    id: row.account_id.to_string(),
-                    acct: row.acct,
-                    display_name: row.display_name.unwrap_or_default(),
-                    note: row.note.unwrap_or_default(),
-                    avatar_url: row.avatar_url.unwrap_or_default(),
-                    followers_count: i64::from(row.followers_count),
-                    last_status_at: row.last_status_at.and_then(since_epoch),
-                    bot: row.bot,
-                    already_following: false,
-                },
-                reason: serde_json::from_value(row.reason.clone()).unwrap_or_else(|error| {
-                    tracing::warn!(item_id = row.id, %error, "stored reason did not decode");
-                    fallback_reason()
-                }),
-            })
-            .collect::<Vec<_>>();
+        let items = page.into_iter().map(snapshot_item).collect::<Vec<_>>();
         let next_cursor =
             more.then(|| cursor::encode(feed_id, items.last().map_or(after, |item| item.item_id)));
         return Ok(Json(envelope(
@@ -105,7 +86,11 @@ pub async fn accounts(
 
     // First page: rank, record, then answer.
     let model_version = feed::active_model_version(&state.pool).await?;
-    let mut candidates = feed::candidates(&state.pool, user.id, limit + 1).await?;
+    let now = OffsetDateTime::now_utc();
+    let mut candidates = without_fresh_rejections(
+        feed::candidates(&state.pool, user.id, limit + 1).await?,
+        now,
+    );
     if candidates.is_empty() {
         // No affinity has been materialised for this user yet: serve the
         // instance-popular rung instead of an empty first page. One ranking pass
@@ -116,7 +101,12 @@ pub async fn accounts(
     let weights = RankingWeights::default();
     let ranked = candidates
         .into_iter()
-        .map(|candidate| (score(&candidate, weights, &user.instance_host), candidate))
+        .map(|candidate| {
+            (
+                score(&candidate, weights, &user.instance_host, now),
+                candidate,
+            )
+        })
         .collect::<Vec<_>>();
 
     let feed_id = Uuid::now_v7();
@@ -159,3 +149,18 @@ pub async fn accounts(
 
 #[cfg(test)]
 mod tests;
+
+/// Drops the rejections the feed must obey before ranking.
+///
+/// A fresh `not_interested` is the one rejection withheld outright: it is an
+/// instruction ("stop"), and the honest way to honour it is to not show the account
+/// for a month rather than to show it and score it low. Every other rejection —
+/// including a stale `not_interested` — is carried into `score` as a decaying
+/// penalty (D26), because an account excluded forever can never be recovered by the
+/// positive evidence that follows a changed mind.
+fn without_fresh_rejections(candidates: Vec<Candidate>, now: OffsetDateTime) -> Vec<Candidate> {
+    candidates
+        .into_iter()
+        .filter(|candidate| !is_fresh_rejection(candidate, now))
+        .collect()
+}
