@@ -107,13 +107,25 @@ Accounts followed by people `u` follows — the classic "follows of followees":
 
 ```text
 for i in F(u):
+    k = 0.6  if u has engaged with i      -- favourited, boosted or replied
+    k = 0.25 otherwise
     for c in F(i) \ F(u):
-        score[c] += 0.25 · w_follow(i) · w_follow(c)
+        score[c] += k · w_follow(i) · w_follow(c)
+        support[c] += 1
 ```
 
-This needs no similarity and works from the first sync, which is why it is the
-backbone for users with few similar peers. It is also noisier, hence the lower
-weight and the popularity damping below.
+This is computed from the follow edges alone (`store::two_hop`), needs no similarity
+and works from the first sync, which is why it is the backbone for users with few
+similar peers. It is also noisier, hence the lower weight and the popularity damping
+below.
+
+The damping is not constant. A path through someone the user follows is weak evidence:
+everyone they follow leads somewhere, and following an account is a cheap act. But if
+the user has *interacted* with that account — favourited, boosted or replied to it —
+then what that account follows says something about their taste, and the path is promoted
+to `0.6`. That is the adaptive part of the design: engaging with a second-hop account
+turns its neighbourhood into first-class candidates, without ever paying to crawl two
+hops out of everyone (D35).
 
 ### 3. Co-engagement (ties the graph to activity)
 

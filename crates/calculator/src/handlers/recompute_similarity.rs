@@ -37,6 +37,7 @@ use nodus_store::affinity::{self, AffinityRow};
 use nodus_store::audience;
 use nodus_store::models::Job;
 use nodus_store::similarity::{self, NeighbourRow, UserGraph};
+use nodus_store::two_hop;
 use sqlx::PgPool;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -141,6 +142,17 @@ impl RecomputeSimilarity {
                 .map_err(|error| database(&error))?;
 
         let mut candidate_rows = build_candidate_rows(&scored, &my_follows);
+        // The graph hop needs no similarity pass, so it fills the feed on an instance
+        // where nobody has a neighbour yet. Engaged bridges were already promoted to
+        // near-full weight by the query itself.
+        let bridges = two_hop::candidates(
+            &self.pool,
+            user_id,
+            i64::try_from(CANDIDATE_LIMIT).unwrap_or(i64::MAX),
+        )
+        .await
+        .map_err(|error| database(&error))?;
+        merge_bridges(&mut candidate_rows, &bridges, &my_follows);
         candidate_rows.sort_by(|a, b| {
             b.affinity
                 .total_cmp(&a.affinity)
@@ -217,8 +229,49 @@ fn build_candidate_rows(
             account_id,
             affinity: affinity as f32,
             support,
+            sources: vec!["similar_user".to_owned()],
         })
         .collect()
+}
+
+/// Fold the graph-hop candidates into the taste-hop ones.
+///
+/// Scores add, because the two paths are independent evidence and a candidate reached
+/// both ways is the strongest kind of candidate we have. `support` adds too, for the
+/// same reason: it counts signals, not sources.
+#[allow(clippy::cast_possible_truncation)]
+fn merge_bridges(
+    candidates: &mut Vec<AffinityRow>,
+    bridges: &[two_hop::BridgeRow],
+    my_follows: &BTreeSet<i64>,
+) {
+    let mut by_account: BTreeMap<i64, AffinityRow> = candidates
+        .drain(..)
+        .map(|row| (row.account_id, row))
+        .collect();
+
+    for bridge in bridges {
+        if my_follows.contains(&bridge.account_id) {
+            continue;
+        }
+        by_account
+            .entry(bridge.account_id)
+            .and_modify(|row| {
+                row.affinity += bridge.weight as f32;
+                row.support = row.support.saturating_add(bridge.support);
+                if !row.sources.iter().any(|source| source == "two_hop") {
+                    row.sources.push("two_hop".to_owned());
+                }
+            })
+            .or_insert_with(|| AffinityRow {
+                account_id: bridge.account_id,
+                affinity: bridge.weight as f32,
+                support: bridge.support,
+                sources: vec!["two_hop".to_owned()],
+            });
+    }
+
+    *candidates = by_account.into_values().collect();
 }
 
 impl Handler for RecomputeSimilarity {

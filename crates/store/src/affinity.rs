@@ -12,22 +12,28 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
+/// Separator between generator names in the serialised `sources` column.
+pub const SOURCE_SEPARATOR: &str = "|";
+
 /// One candidate account and the score the similarity pass gave it.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AffinityRow {
     /// Local account id.
     pub account_id: i64,
     /// Damped, normalised affinity.
     pub affinity: f32,
-    /// Number of similar users supporting this candidate.
+    /// Number of signals supporting this candidate.
     pub support: i16,
+    /// Which generators contributed: `similar_user`, `two_hop` or both.
+    pub sources: Vec<String>,
 }
 
 /// Replace one user's candidate accounts.
 ///
 /// All previous rows for the user are removed, including rows another generator
-/// might have written: at present `similar_user` is the only producer, and a stale
-/// candidate is worse than a missing one. The 7-day `expires_at` is set by the
+/// might have written: a stale candidate is worse than a missing one. `sources`
+/// records which generators contributed, so the feed can explain a recommendation
+/// without recomputing the graph. The 7-day `expires_at` is set by the
 /// insert so the feed never serves a snapshot older than the recompute cadence.
 ///
 /// Returns the number of rows inserted.
@@ -53,19 +59,26 @@ pub async fn replace_for_user(
         let accounts: Vec<i64> = rows.iter().map(|row| row.account_id).collect();
         let affinities: Vec<f32> = rows.iter().map(|row| row.affinity).collect();
         let supports: Vec<i16> = rows.iter().map(|row| row.support).collect();
+        // A nested array cannot be bound as `text[][]`; the sources are joined with a
+        // separator that cannot occur in a generator name and split in SQL.
+        let sources: Vec<String> = rows
+            .iter()
+            .map(|row| row.sources.join(SOURCE_SEPARATOR))
+            .collect();
 
         sqlx::query(
             "INSERT INTO account_affinity \
                  (user_id, account_id, affinity, support, sources, expires_at) \
-             SELECT $1, account_id, affinity, support, ARRAY['similar_user']::text[], \
+             SELECT $1, account_id, affinity, support, string_to_array(sources, '|'), \
                  now() + interval '7 days' \
-             FROM UNNEST($2::bigint[], $3::real[], $4::smallint[]) \
-                 AS page (account_id, affinity, support)",
+             FROM UNNEST($2::bigint[], $3::real[], $4::smallint[], $5::text[]) \
+                 AS page (account_id, affinity, support, sources)",
         )
         .bind(user_id)
         .bind(&accounts)
         .bind(&affinities)
         .bind(&supports)
+        .bind(&sources)
         .execute(&mut *tx)
         .await?
         .rows_affected()

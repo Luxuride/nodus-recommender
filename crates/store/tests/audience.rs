@@ -17,6 +17,7 @@ fn candidate(account_id: i64, affinity: f32) -> AffinityRow {
         account_id,
         affinity,
         support: 1,
+        sources: vec!["similar_user".to_owned()],
     }
 }
 
