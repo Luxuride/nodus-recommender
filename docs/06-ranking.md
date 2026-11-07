@@ -181,6 +181,23 @@ decaying**, or the decay is decorative because nothing can ever lift it. Ladder:
 | not_interested | −5.0 | 30 days | repeated positive evidence |
 | follow / boost / reply | +3.0 / +2.0 | 180 days (taste drift) | time only |
 
+### Exploration is a channel, not a tie-break
+
+Five percent of a page is drawn from ranks **51–200**, never from the head: at most one
+slot on a twenty-item page, two on forty, five on a hundred. The choice is
+deterministic in the feed's seed (`nodus_core::explore::choose`, a partial Fisher–Yates
+over a SplitMix64 stream), so reloading page one inside the same snapshot shows the same
+list, and two feeds replicas serving the same snapshot agree without talking to each
+other. A page shorter than four items gets no slot at all — taking one of three is not
+exploration, it is a coin flip with the user's decision.
+
+Without this channel the rest of this section is decoration. A rejection decays only if
+something can later produce positive evidence about that account, and a feed that shows
+the head of the ranking forever never does; a new account has no affinity, so it lives
+in the tail and would never leave it. The explore slot is also how a decaying penalty is
+*measured*: the impressions it produces are the `n` in the shrinkage, so an account
+rejected once and later engaged with recovers on evidence rather than on a timer.
+
 ### Thin evidence moves nothing
 
 Every correction is shrunk by `n / (n + prior)`: `prior = 25` impressions for a

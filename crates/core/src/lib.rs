@@ -17,6 +17,7 @@ pub mod damping;
 pub mod diversity;
 pub mod drift;
 pub mod evidence;
+pub mod explore;
 pub mod idf;
 pub mod labels;
 pub mod post;
@@ -35,6 +36,7 @@ pub use evidence::{
     PENALTY_NORMALISER, base_penalty, confidence, decayed_penalty, dwell_correction,
     normalized_penalty, shrink,
 };
+pub use explore::{EXPLORE_FIRST_RANK, EXPLORE_LAST_RANK, choose, slots};
 pub use idf::{follow_weight, status_weight, target_weight};
 pub use labels::{EventKind, label, label_with_dwell};
 pub use post::{
