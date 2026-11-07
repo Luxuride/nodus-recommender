@@ -35,6 +35,7 @@ use self::response::{envelope, feed_account, snapshot_item};
 
 mod page;
 mod params;
+pub mod posts;
 mod ranking;
 mod response;
 
@@ -194,7 +195,7 @@ fn without_fresh_rejections(candidates: Vec<Candidate>, now: OffsetDateTime) -> 
 /// first eight bytes differ per snapshot and *are* deterministic within one. That is
 /// exactly the property wanted — two replicas serving the same snapshot pick the same
 /// explore slots, while a refresh explores differently.
-fn seed_of(feed_id: Uuid) -> u64 {
+pub(super) fn seed_of(feed_id: Uuid) -> u64 {
     let bytes = feed_id.as_bytes();
     let mut seed = [0_u8; 8];
     seed.copy_from_slice(&bytes[..8]);
@@ -229,7 +230,7 @@ const SNAPSHOT_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 /// produce another item", and the client's recovery (start a new feed) is the same in
 /// both the expired and the never-existed case — so both answer the same code with
 /// different sentences.
-async fn ensure_continuable(
+pub(super) async fn ensure_continuable(
     state: &AppState,
     user_id: Uuid,
     feed_id: Uuid,

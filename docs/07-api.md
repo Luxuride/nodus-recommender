@@ -208,6 +208,48 @@ bounded by a day of impressions instead of a week.
 }
 ```
 
+### `GET /api/v1/feed/posts?limit=20`
+
+The same snapshot rules and the same cursor shape as the account feed, with one
+deliberate difference: a post snapshot is **never reused** for a new first page.
+Reloading the account feed ten times in a minute is one question, and it should get one
+answer; reloading the post feed is "is there something newer", and the answer lives in
+the statuses the calculator already stored. A cursor still continues the snapshot it
+was minted from, and still expires after 24 hours (`410`, code `feed_expired`).
+
+```json
+{
+  "feed_id": "01JABCEF...",
+  "generated_at": "2026-11-07T09:31:00Z",
+  "contract": "0.1.0",
+  "model_version": 7,
+  "degraded": null,
+  "items": [
+    {
+      "item_id": 918301,
+      "status_id": "113456789012345678",
+      "account_acct": "dana@example.social",
+      "account_display_name": "Dana",
+      "account_avatar_url": "https://example.social/avatars/dana.png",
+      "text": "<p>the shape of a good recommender is a good explanation</p>",
+      "published_at": "2026-11-07T07:02:00Z",
+      "favourites_count": 41,
+      "reblogs_count": 12,
+      "replies_count": 3,
+      "instance_host": "example.social",
+      "reason": { "code": "author_you_should_follow", "support": 0, "sample_followers": [] }
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+`text` is the instance's HTML, sanitized by the client's one sanitizer (see
+[`04-ui.md`](../../web/docs/04-ui.md)). Posts older than `POST_MAX_AGE_DAYS` (7) and
+posts whose author the user already follows are excluded structurally, before scoring.
+A post that scores zero -- an old post with no attention -- is dropped rather than
+shown last, so the page is shorter instead of padded.
+
 `degraded` is `null` normally, or `"cold_start"` / `"stale_similarity"` /
 `"no_server_sync"` so the client shows an honest banner instead of faking
 personalization.

@@ -36,6 +36,7 @@ pub fn router(state: AppState) -> Router {
             axum::routing::get(share::short_link),
         )
         .route("/api/v1/feed/accounts", axum::routing::get(feed::accounts))
+        .route("/api/v1/feed/posts", axum::routing::get(feed::posts::posts))
         .route("/api/v1/events", axum::routing::post(events::collect))
         .route(
             "/api/v1/feedback/not-interested",

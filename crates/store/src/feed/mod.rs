@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 mod candidate;
 mod popular;
+pub mod posts;
 
 pub use candidate::{Candidate, candidates};
 pub use popular::popular_candidates;
