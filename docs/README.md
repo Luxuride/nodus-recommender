@@ -44,7 +44,7 @@ Nodus/            ← superproject: .devcontainer, .gitmodules, README
 
 The SDK — wire contract, client state machine, versioning and pinning rules — is
 documented in the SDK repository's `docs/`:
-<https://github.com/luxuride/nodus-sdk/tree/main/docs>. Read
+<https://github.com/nodus-social/nodus-sdk/tree/main/docs>. Read
 [03-contract.md](../../sdk/docs/03-contract.md) for the wire contract and
 [02-architecture.md](../../sdk/docs/02-architecture.md) for the client state that
 the web client renders.

@@ -15,7 +15,7 @@ edition = "2024"
 rust-version = "1.85"
 license = "AGPL-3.0-or-later"
 publish = false
-repository = "https://github.com/luxuride/nodus-recommender"
+repository = "https://github.com/nodus-social/nodus-recommender"
 
 # Shared with the web client. The SDK checkout is the `sdk` submodule of the
 # superproject, so a path dependency plus the superproject's gitlink pin one
