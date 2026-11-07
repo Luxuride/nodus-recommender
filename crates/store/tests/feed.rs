@@ -142,7 +142,7 @@ async fn a_rejection_is_reported_rather_than_hidden(pool: PgPool) {
         .unwrap();
     }
 
-    let candidates = feed::candidates(&pool, user.id, 10).await.unwrap();
+    let candidates = feed::candidates(&pool, user.id, 10, None).await.unwrap();
     let accts: Vec<&str> = candidates.iter().map(|c| c.acct.as_str()).collect();
     assert_eq!(
         accts,
@@ -165,7 +165,7 @@ async fn a_rejection_is_reported_rather_than_hidden(pool: PgPool) {
     assert!(dave_row.rejected_at.is_some());
 
     // A limit smaller than the candidate set must come back truncated, not extended.
-    let limited = feed::candidates(&pool, user.id, 1).await.unwrap();
+    let limited = feed::candidates(&pool, user.id, 1, None).await.unwrap();
     assert_eq!(limited.len(), 1);
     assert_eq!(limited[0].acct, "alice");
 }
@@ -416,7 +416,7 @@ async fn popular_candidates_exclude_followed_and_order_by_followers(pool: PgPool
     assert!((popular[0].affinity - 1.0).abs() < f64::EPSILON);
     assert_eq!(popular[0].support, 0);
     assert_eq!(popular[0].sources, Vec::<String>::new());
-    assert_eq!(popular[0].seen_count_7d, 0);
+    assert_eq!(popular[0].seen_attention_7d, 0.0);
     assert!(popular[0].last_shown_at.is_none());
     assert!(popular[0].rejected_kind.is_none());
     assert!(popular[0].rejected_at.is_none());

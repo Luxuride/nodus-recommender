@@ -75,7 +75,7 @@ impl Default for RankingWeights {
 ///
 /// `affinity` is the graph score normalized to `0..=1`; `support` is the number of
 /// distinct similar users who follow the candidate; `age_days` is the age of the
-/// candidate's last status; `seen_count_7d` counts impressions of this account for
+/// candidate's last status; `seen_attention_7d` counts attention spent on this account for
 /// this user in the last seven days.
 ///
 /// The drift signals default to "unknown": no follow age, never shown, and a
@@ -97,7 +97,7 @@ pub struct CandidateSignals {
     /// Whether the candidate's languages intersect the user's known languages.
     pub language_match: bool,
     /// Impressions of this candidate for this user in the last seven days.
-    pub seen_count_7d: u32,
+    pub seen_attention_7d: f64,
     /// Rejection strength for this candidate, `0.0..=1.0`.
     ///
     /// Produced by [`crate::evidence::normalized_penalty`]: the stored penalty
@@ -132,7 +132,7 @@ impl Default for CandidateSignals {
             age_days: 0.0,
             same_instance: false,
             language_match: false,
-            seen_count_7d: 0,
+            seen_attention_7d: 0.0,
             penalty: 0.0,
             follow_age_days: None,
             stability: Stability::default(),
@@ -159,7 +159,7 @@ const FRESHNESS_TAU_DAYS: f64 = 30.0;
 ///   + w.local·same_instance
 ///   + w.language·language_match
 ///   + stability_bonus(stability, w.stability)
-///   − w.fatigue·seen_count_7d
+///   − w.fatigue·seen_attention_7d
 ///   − w.penalty·penalty
 /// ```
 ///
@@ -206,7 +206,7 @@ pub fn score(candidate: &CandidateSignals, weights: RankingWeights) -> f64 {
     total += weights.local * flag(candidate.same_instance);
     total += weights.language * flag(candidate.language_match);
     total += stability_bonus(&candidate.stability, weights.stability);
-    total -= weights.fatigue * f64::from(candidate.seen_count_7d);
+    total -= weights.fatigue * candidate.seen_attention_7d;
     total -= weights.penalty * candidate.penalty;
     total
 }
@@ -244,7 +244,7 @@ mod tests {
             age_days: 10.0,
             same_instance: false,
             language_match: false,
-            seen_count_7d: 0,
+            seen_attention_7d: 0.0,
             penalty: 0.0,
             follow_age_days: None,
             stability: Stability::default(),
@@ -316,7 +316,7 @@ mod tests {
         let weights = RankingWeights::default();
         let clean = candidate();
         let mut fatigued = candidate();
-        fatigued.seen_count_7d = 3;
+        fatigued.seen_attention_7d = 3.0;
 
         assert!(approx(
             score(&clean, weights) - score(&fatigued, weights),

@@ -24,12 +24,16 @@ pub struct Candidate {
     /// small bonus, so a refresh does not reshuffle a list the user is still
     /// reading. `None` means never shown, which earns no bonus.
     pub last_shown_at: Option<OffsetDateTime>,
-    /// Impressions of this account in the last 7 days.
+    /// Attention spent on this account in the last 7 days, in units of the user's
+    /// own median dwell.
     ///
-    /// The fatigue term, and the reason a user who has scrolled past an account
-    /// four times without tapping it stops seeing it: exposure without interaction
-    /// is a negative signal, not a neutral one.
-    pub seen_count_7d: i32,
+    /// The fatigue term, and the reason a user who has scrolled past an account four
+    /// times without tapping it stops seeing it: exposure without interaction is a
+    /// negative signal, not a neutral one. It counts attention rather than page loads
+    /// (D44), so a card skimmed past in 300 ms is worth a fraction of one that was
+    /// read for the user's usual minute, and one never measured counts as a single
+    /// plain impression.
+    pub seen_attention_7d: f64,
     /// Kind of the most recent rejection (`dismiss` or `not_interested`), if any.
     ///
     /// Reported instead of filtered so the ranker can decay it (D26): an account
@@ -88,6 +92,7 @@ pub async fn candidates(
     pool: &PgPool,
     user_id: Uuid,
     limit: i64,
+    baseline_ms: Option<f64>,
 ) -> Result<Vec<Candidate>, sqlx::Error> {
     sqlx::query_as::<_, Candidate>(
         "WITH me AS ( \
@@ -99,7 +104,7 @@ pub async fn candidates(
          ) \
          SELECT af.account_id, af.affinity::float8 AS affinity, af.support, af.sources, \
              af.computed_at, shown.served_at AS last_shown_at, \
-             impressions.seen AS seen_count_7d, \
+             impressions.seen AS seen_attention_7d, \
              rej.kind AS rejected_kind, rej.server_ts AS rejected_at, \
              total_impressions.seen AS impressions, \
              ft.impressions AS follow_through_shown, \
@@ -118,7 +123,16 @@ pub async fn candidates(
              ORDER BY ri.served_at DESC LIMIT 1 \
          ) AS shown ON true \
          LEFT JOIN LATERAL ( \
-             SELECT count(*)::integer AS seen \
+             SELECT COALESCE( \
+                 SUM( \
+                     CASE \
+                         WHEN e.dwell_ms IS NULL THEN 1.0 \
+                         WHEN $3::float8 IS NULL OR $3::float8 <= 0 THEN 1.0 \
+                         ELSE LEAST(e.dwell_ms::float8 / $3::float8, 3.0) \
+                     END \
+                 ), \
+                 0.0 \
+             )::float8 AS seen \
              FROM interaction_event e \
              JOIN recommendation_item ri ON ri.id = e.item_id \
              WHERE e.user_id = $1 AND ri.account_id = af.account_id \
@@ -154,6 +168,7 @@ pub async fn candidates(
     )
     .bind(user_id)
     .bind(limit)
+    .bind(baseline_ms)
     .fetch_all(pool)
     .await
 }

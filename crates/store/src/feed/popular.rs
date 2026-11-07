@@ -27,7 +27,7 @@ use super::candidate::Candidate;
 ///
 /// `affinity` is `1.0`, `support` is `0` and `sources` is empty, so a reader can tell
 /// this row apart from a calculated one; [`super::candidate::Candidate::last_shown_at`],
-/// `seen_count_7d`, `rejected_kind`, `rejected_at`, `impressions` and the
+/// `seen_attention_7d`, `rejected_kind`, `rejected_at`, `impressions` and the
 /// follow-through counters are empty because
 /// this rung has no impression history to read.
 ///
@@ -49,7 +49,7 @@ pub async fn popular_candidates(
          ) \
          SELECT a.id AS account_id, 1.0::float8 AS affinity, 0::smallint AS support, \
              ARRAY[]::text[] AS sources, now() AS computed_at, \
-             NULL::timestamptz AS last_shown_at, 0::integer AS seen_count_7d, \
+             NULL::timestamptz AS last_shown_at, 0.0::float8 AS seen_attention_7d, \
              NULL::text AS rejected_kind, NULL::timestamptz AS rejected_at, \
              0::integer AS impressions, \
              NULL::integer AS follow_through_shown, \

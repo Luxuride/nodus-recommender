@@ -19,10 +19,12 @@ use sqlx::{PgPool, postgres::types::PgInterval};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+mod attention;
 mod candidate;
 mod popular;
 pub mod posts;
 
+pub use attention::baseline_ms;
 pub use candidate::{Candidate, candidates};
 pub use popular::popular_candidates;
 
@@ -253,7 +255,7 @@ mod tests {
             sources: vec!["similar_user".to_owned()],
             computed_at: OffsetDateTime::UNIX_EPOCH,
             last_shown_at: None,
-            seen_count_7d: 0,
+            seen_attention_7d: 0.0,
             rejected_kind: None,
             rejected_at: None,
             impressions: 0,

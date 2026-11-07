@@ -42,10 +42,20 @@ pub(super) async fn fresh_page(
     age: Option<f64>,
     degraded: Option<String>,
 ) -> Result<AccountFeed, ApiError> {
+    // One query per request: the baseline is a property of the reader, not of the
+    // candidate, and every candidate's fatigue is expressed in it. A failure is not
+    // worth failing the page for — fatigue then counts plain impressions, which is
+    // what it did before attention was measured.
+    let baseline = feed::baseline_ms(&state.pool, user.id)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "dwell baseline unavailable; fatigue counts impressions");
+            None
+        });
     let model_version = feed::active_model_version(&state.pool).await?;
     let now = OffsetDateTime::now_utc();
     let mut candidates = without_fresh_rejections(
-        feed::candidates(&state.pool, user.id, limit + 1).await?,
+        feed::candidates(&state.pool, user.id, limit + 1, baseline).await?,
         now,
     );
     if candidates.is_empty() {

@@ -43,7 +43,7 @@ pub(super) fn score(
             age_days,
             same_instance: candidate.instance_host == home,
             language_match: false,
-            seen_count_7d: u32::try_from(candidate.seen_count_7d).unwrap_or(0),
+            seen_attention_7d: candidate.seen_attention_7d,
             penalty: penalty(candidate, now),
             // A candidate is by definition not followed yet, so there is no follow
             // edge to age; the taste decay applies to the affinity the calculator
@@ -188,7 +188,7 @@ mod tests {
             sources: vec!["similar_user".to_owned()],
             computed_at: now,
             last_shown_at: None,
-            seen_count_7d: 0,
+            seen_attention_7d: 0.0,
             rejected_kind: rejected.map(|(kind, _)| kind.to_owned()),
             rejected_at: rejected.map(|(_, age_days)| now - Duration::days(age_days)),
             impressions,

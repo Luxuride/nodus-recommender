@@ -22,7 +22,7 @@ score(u,c) =  w_sim      · affinity[u,c] · taste_factor(u,c) · popularity_lif
             + w_local    · (c.instance_host = u.instance_host)
             + w_lang     · (u.languages ∩ c.languages ≠ ∅)
             + w_stable   · stability_bonus(u,c)          -- exp(-shown_age_days / 7), capped
-            − w_fatigue  · seen_count(u,c, 7d)
+            − w_fatigue  · attention(u,c, 7d)
             − w_penalty  · penalty(u,c)                  -- decaying, shrunk by evidence, 0..1
 ```
 
@@ -58,7 +58,7 @@ dividing by how famous an account is).
 | `w_fresh` | 0.20 | recently active accounts are more likely to be worth a follow |
 | `w_local` | 0.10 | mild home-instance preference: following locally is cheaper socially and technically |
 | `w_lang` | 0.10 | only when the user's language is known and the candidate's posts are in it |
-| `w_fatigue` | 0.30 | repeated exposure without interaction is a negative signal |
+| `w_fatigue` | 0.30 | repeated exposure without attention is a negative signal; the unit is one measured read, not one page load |
 | `w_taste` | 0.20 | how much a stale follow weakens the graph evidence behind a candidate |
 | `w_stable` | 0.15 | hysteresis: an account shown in the last week keeps a small bonus, so the list does not reshuffle under a reader |
 | `w_dismiss` | 2.00 | explicit "not interested" — effectively excludes the account |
@@ -105,13 +105,28 @@ ranker can only confirm what it already believes, and a user's taste never
 drifts. Exploration items carry the same reason format; no "because we felt like
 it" label.
 
-### Fatigue and frequency capping
+### Fatigue counts attention, not page loads
 
-`seen_count` counts impressions of `(u, c)` in the last 7 days from
-`interaction_event`. An account with 3 impressions and no interaction is dropped
-from the candidate pool for 14 days; an account with an impression in the last
-24 h is not shown again unless the user followed it (then it disappears anyway).
-`dismissed` is permanent per user.
+`attention(u, c, 7d)` sums impressions of `(u, c)` over the last seven days, each
+weighted by how long it was on screen relative to *that reader's own* median dwell:
+
+```text
+attention = Σ over impressions e:
+    dwell(e) is null            → 1.0        (not measured: count it as one)
+    baseline(u) is null         → 1.0        (fewer than 20 measured samples)
+    otherwise                   → min(dwell(e) / baseline(u), 3.0)
+```
+
+The baseline is the median, not the mean: a mean is dragged upward by the tab left
+open over lunch, which is exactly the behaviour the measurement is meant to
+discount. Three impressions a reader lingered on therefore weigh more than five
+they skimmed past — under a plain count those five looked worse.
+
+There is no hard frequency cap and no "not shown again for 14 hours" rule. Both were
+in an earlier draft and both are wrong for the same reason: they are exclusions that
+never decay, so an account the user has genuinely warmed to cannot come back. What
+the earlier draft called capping is now the penalty term (§ negatives decay) plus
+this fatigue term, both of which are finite and both of which fade.
 
 ## Post ranking
 
