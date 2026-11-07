@@ -46,6 +46,12 @@ echo "feed, old contract : $(curl -s -H 'x-contract-version: 0.0.1' http://127.0
 echo "feed, unknown host : $(curl -s -H 'x-instance-host: nope.invalid' -H 'authorization: Bearer x' http://127.0.0.1:3000/api/v1/feed/accounts | head -c 200)"
 echo "events, bad body   : HTTP $(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'x-instance-host: nope.invalid' -H 'authorization: Bearer x' -H 'content-type: application/json' -d '{}' http://127.0.0.1:3000/api/v1/events)"
 
+echo "--- shared links"
+echo "share, bad host    : HTTP $(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:3000/s/%2E%2E%2Fx/1')"
+echo "share, non-digit id: HTTP $(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:3000/s/mastodon.social/abc')"
+echo "share, unreachable : HTTP $(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:3000/s/does-not-exist.invalid/1')"
+echo "share, og tags     : $(curl -s 'http://127.0.0.1:3000/s/does-not-exist.invalid/1' | grep -c 'og:') og: tags, $(curl -s -o /dev/null -w '%{content_type}' 'http://127.0.0.1:3000/s/does-not-exist.invalid/1')"
+
 echo "--- queue"
 psql_local "INSERT INTO job (kind, priority, subject_kind, subject_id) VALUES ('sync_user', 0, 'user', gen_random_uuid()::text)" >/dev/null
 sleep 2
