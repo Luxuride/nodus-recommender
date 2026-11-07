@@ -195,11 +195,34 @@ for consent) and `nodus_calculator` (read-write on graph and derived tables).
 `application_name` distinguishes them in `pg_stat_activity`, which is the first
 thing to look at when the feed slows down and the queue does not.
 
+## Maintenance tick
+
+`nodus-calculator` runs a tick every fifteen minutes that enqueues the passes nobody
+triggers: `recompute_follow_through`, `retain`, and `recompute_similarity` for up to
+two hundred users whose graph changed in the last day. Nothing else schedules them, so
+without the tick the feed keeps serving a model that was true a week ago.
+
+Two deduplication mechanisms, because one is not enough:
+
+| Kind | Subject | Deduplicated by |
+| --- | --- | --- |
+| `recompute_similarity` | the user | `job_outstanding_subject_idx` (partial unique on kind, subject) |
+| `recompute_follow_through`, `retain` | none | an explicit `has_outstanding` check, since two `NULL` subjects never conflict in an index |
+
+The tick is a producer, not a handler: it returns as soon as the rows exist, so a
+restart mid-tick loses nothing and a second replica simply claims the same jobs with
+`SKIP LOCKED`. A database error inside the tick is logged and retried on the next
+interval — it must not take the worker down, because the worker is what drains the
+backlog once the database returns.
+
+The first tick runs immediately at startup, so a fresh deployment gets its follow-through
+baseline without waiting fifteen minutes.
+
 ## CI per repository
 
 | Repo | Jobs |
 | --- | --- |
-| `contract` | fmt, clippy `-D warnings`, test, `cargo build --target wasm32-unknown-unknown`, compatibility build of `recommender@main` and `web@main` against the working tree, tag on merge to `main` when `CONTRACT_VERSION` changed |
+| `sdk` | fmt, clippy `-D warnings`, test, `cargo build --target wasm32-unknown-unknown`, compatibility build of `recommender@main` and `web@main` against the working tree, tag on merge to `main` when `CONTRACT_VERSION` changed |
 | `recommender` | fmt, clippy, test (with Postgres service), `sqlx migrate run` on empty DB + last dump schema, build image, `cargo deny` |
 | `web` | fmt, clippy `--target wasm32`, `trunk build --release`, wasm size budget check, Playwright against the mock instance, `cargo deny` |
 

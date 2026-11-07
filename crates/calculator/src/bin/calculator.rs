@@ -24,6 +24,7 @@
 use std::process::ExitCode;
 
 use nodus_calculator::handlers::{RefreshConfig, SyncConfig};
+use nodus_calculator::maintenance::{self, Maintenance};
 use nodus_calculator::{Config, Registry, Worker};
 use nodus_store::{connect_and_migrate, crypto::TokenSealer};
 use tokio::signal;
@@ -107,11 +108,31 @@ async fn main() -> ExitCode {
     };
     let worker = Worker::new(
         pool.clone(),
-        Registry::standard(pool, sync, refresh),
+        Registry::standard(pool.clone(), sync, refresh),
         config,
     );
 
-    match worker.run(shutdown_signal()).await {
+    // The tick is a producer, not a handler: it enqueues the passes only a clock asks
+    // for. A failure inside it is logged and retried on the next interval, so it
+    // cannot take the worker down with it.
+    let (stop, mut stop_rx) = tokio::sync::watch::channel(false);
+    let tick = tokio::spawn(maintenance::run(
+        Maintenance::new(pool),
+        MAINTENANCE_INTERVAL,
+        async move {
+            while stop_rx.changed().await.is_ok() {
+                if *stop_rx.borrow() {
+                    return;
+                }
+            }
+        },
+    ));
+
+    let result = worker.run(shutdown_signal()).await;
+    let _ = stop.send(true);
+    let _ = tick.await;
+
+    match result {
         Ok(()) => {
             info!("calculator stopped");
             ExitCode::SUCCESS
@@ -122,6 +143,13 @@ async fn main() -> ExitCode {
         }
     }
 }
+
+/// How often the maintenance tick looks for work only a clock would ask for.
+///
+/// Fifteen minutes is the arithmetic of the passes it enqueues: retention runs daily
+/// and follow-through recounts are cheap, so anything faster is queue churn, and
+/// anything slower makes a fresh deployment wait hours for its first counters.
+const MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 async fn shutdown_signal() {
     let ctrl_c = async {

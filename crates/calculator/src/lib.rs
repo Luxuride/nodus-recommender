@@ -17,8 +17,10 @@
 
 pub mod config;
 pub mod handlers;
+pub mod maintenance;
 pub mod worker;
 
 pub use config::{Config, ConfigError};
 pub use handlers::{Handler, JobError, Registry};
+pub use maintenance::{Maintenance, Report};
 pub use worker::Worker;

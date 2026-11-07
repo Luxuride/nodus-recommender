@@ -97,6 +97,26 @@ pub async fn enqueue(pool: &PgPool, job: &NewJob) -> Result<Option<i64>, sqlx::E
     Ok(if row.1 { Some(row.0) } else { None })
 }
 
+/// Whether a job of `kind` is already queued or running.
+///
+/// Needed for kinds whose subject is `NULL`: a unique index cannot deduplicate them,
+/// because two `NULL`s are distinct to the index. Instance-wide passes (`retain`,
+/// `recompute_follow_through`) are exactly that case, and a producer that enqueued
+/// one per tick would grow the queue without ever adding work.
+///
+/// # Errors
+///
+/// Propagates [`sqlx::Error`].
+pub async fn has_outstanding(pool: &PgPool, kind: &str) -> Result<bool, sqlx::Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM job WHERE kind = $1 AND status IN ('pending', 'running')",
+    )
+    .bind(kind)
+    .fetch_one(pool)
+    .await?;
+    Ok(count > 0)
+}
+
 /// Claim up to `limit` due jobs for `worker_id`.
 ///
 /// The inner `SELECT … FOR UPDATE SKIP LOCKED` is what makes this safe with several
