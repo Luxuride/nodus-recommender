@@ -31,7 +31,7 @@ pub use unfurl::{Unfurl, UnfurlError};
 /// Cache key prefix. Versioned because a change in the shape of [`Unfurl`] must
 /// not be read back by a replica running the previous build during a rolling
 /// deploy: the `v1` bump makes old and new entries distinct.
-const KEY_PREFIX: &str = "og:v1";
+const KEY_PREFIX: &str = "og:v2";
 
 /// How long a failed unfurl is remembered.
 ///
@@ -63,7 +63,11 @@ pub async fn resolve(state: &AppState, host: &str, status_id: &str) -> Result<Un
     outcome
 }
 
-/// `og:v1:<host>:<status id>`.
+/// `og:v2:<host>:<status id>`.
+///
+/// The version moves when the cached shape does: a `v1` entry holds one image, and
+/// serving it from cache after the shape changed would silently keep single-image
+/// previews for a day.
 fn cache_key(host: &str, status_id: &str) -> String {
     format!("{KEY_PREFIX}:{host}:{status_id}")
 }
@@ -116,7 +120,7 @@ mod tests {
     fn the_key_is_namespaced_by_version_and_host() {
         assert_eq!(
             cache_key("mastodon.social", "123"),
-            "og:v1:mastodon.social:123"
+            "og:v2:mastodon.social:123"
         );
         // Two instances can use the same snowflake for different posts, so the host
         // has to be part of the key.

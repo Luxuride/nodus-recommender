@@ -16,6 +16,12 @@ use serde::Deserialize;
 /// client's two-line preview without being cut mid-word by us.
 const DESCRIPTION_LIMIT: usize = 240;
 
+/// Most images a preview carries.
+///
+/// Four is the point where a post stops being summarised and starts being republished,
+/// and it matches what an instance lets a single post attach.
+pub const MAX_IMAGES: usize = 4;
+
 /// One status, ready to be rendered as a page and cached.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Unfurl {
@@ -23,8 +29,14 @@ pub struct Unfurl {
     pub title: String,
     /// Post text with markup removed, trimmed to [`DESCRIPTION_LIMIT`].
     pub description: String,
-    /// Preview image: the first attachment, else the author's avatar.
-    pub image: Option<String>,
+    /// Preview images: the post's attachments, else the author's avatar.
+    ///
+    /// Capped at [`MAX_IMAGES`] because a preview is a summary: a chat client shows one
+    /// picture per embed, and a crawler that shows four has already spent more attention
+    /// than the post earned. The order is the post's own, so the first image is the one
+    /// a client that only reads one will show.
+    #[serde(default)]
+    pub images: Vec<String>,
     /// The post on its own instance — the canonical destination, and what a reader
     /// who is already on that instance should open.
     pub canonical: String,
@@ -130,18 +142,27 @@ fn reduce(wire: &Wire, host: &str, status_id: &str) -> Result<Unfurl, UnfurlErro
         .filter(|url| url.starts_with("https://"))
         .unwrap_or_else(|| format!("https://{host}/@{}/{status_id}", account.acct));
 
-    let image = wire
+    let mut images: Vec<String> = wire
         .media_attachments
-        .first()
+        .iter()
         .map(|media| media.preview_url.as_str())
-        .or(Some(account.avatar_static.as_str()))
         .filter(|url| url.starts_with("https://"))
-        .map(ToOwned::to_owned);
+        .take(MAX_IMAGES)
+        .map(ToOwned::to_owned)
+        .collect();
+    if images.is_empty() {
+        // A post without media still deserves a picture in the preview, and the author's
+        // avatar is the only one that is ours to show.
+        let avatar = account.avatar_static.as_str();
+        if avatar.starts_with("https://") {
+            images.push(avatar.to_owned());
+        }
+    }
 
     Ok(Unfurl {
         title,
         description: plain_text(&wire.content, DESCRIPTION_LIMIT),
-        image,
+        images,
         canonical,
         author_acct: account.acct.clone(),
         published_at: wire.created_at.clone(),
@@ -322,14 +343,42 @@ mod tests {
         let mut post = wire("public", "<p>hi</p>");
         post.account.avatar_static = "http://insecure.example/ada.png".to_owned();
         let unfurl = reduce(&post, "mastodon.social", "1").expect("reduces");
-        assert_eq!(unfurl.image, None, "an http image would be blocked anyway");
+        assert!(
+            unfurl.images.is_empty(),
+            "an http image would be blocked anyway"
+        );
 
         post.account.avatar_static = "https://files.example/ada.png".to_owned();
         let unfurl = reduce(&post, "mastodon.social", "1").expect("reduces");
+        assert_eq!(unfurl.images, vec!["https://files.example/ada.png"]);
+    }
+
+    #[test]
+    fn every_attachment_becomes_a_preview_image_up_to_the_cap() {
+        let mut post = wire("public", "<p>hi</p>");
+        post.media_attachments = (0..6)
+            .map(|index| WireMedia {
+                preview_url: format!("https://files.example/{index}.png"),
+            })
+            .collect();
+        let unfurl = reduce(&post, "mastodon.social", "1").expect("reduces");
         assert_eq!(
-            unfurl.image.as_deref(),
-            Some("https://files.example/ada.png")
+            unfurl.images.len(),
+            MAX_IMAGES,
+            "a preview summarises, it does not republish"
         );
+        assert_eq!(unfurl.images[0], "https://files.example/0.png");
+    }
+
+    #[test]
+    fn media_replaces_the_avatar_rather_than_joining_it() {
+        let mut post = wire("public", "<p>hi</p>");
+        post.account.avatar_static = "https://files.example/ada.png".to_owned();
+        post.media_attachments = vec![WireMedia {
+            preview_url: "https://files.example/post.png".to_owned(),
+        }];
+        let unfurl = reduce(&post, "mastodon.social", "1").expect("reduces");
+        assert_eq!(unfurl.images, vec!["https://files.example/post.png"]);
     }
 
     #[test]

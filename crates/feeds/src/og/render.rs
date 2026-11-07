@@ -8,6 +8,8 @@
 //! There is no script on the page at all, which is what makes the strict CSP on the
 //! app unnecessary here and keeps a preview cheap to render and safe to cache.
 
+use std::fmt::Write as _;
+
 use super::Unfurl;
 
 /// Render a found post.
@@ -23,27 +25,35 @@ pub fn page(unfurl: &Unfurl, share_url: &str, app_url: &str) -> String {
 
     // `summary_large_image` only makes sense with an image; without one, X and
     // friends render a big empty card.
-    let card = if unfurl.image.is_some() {
-        "summary_large_image"
-    } else {
+    let card = if unfurl.images.is_empty() {
         "summary"
+    } else {
+        "summary_large_image"
     };
-    let image_tags = unfurl
-        .image
-        .as_deref()
-        .map(|url| {
-            let url = escape(url);
-            format!(
-                "    <meta property=\"og:image\" content=\"{url}\">\n\
-                 \x20   <meta name=\"twitter:image\" content=\"{url}\">\n"
-            )
-        })
-        .unwrap_or_default();
-    let image = unfurl.image.as_deref().map_or_else(String::new, |url| {
-        format!(
-            "      <img class=\"media\" src=\"{}\" alt=\"\" referrerpolicy=\"no-referrer\">\n",
+    // One `og:image` per attachment: the protocol keeps the order, and a crawler that
+    // reads only the first (most of them do) still gets the post's own lead image. The
+    // Twitter card is single-image by definition, so it gets the first one only.
+    let mut image_tags = String::new();
+    for (index, url) in unfurl.images.iter().enumerate() {
+        let url = escape(url);
+        let _ = writeln!(
+            image_tags,
+            "    <meta property=\"og:image\" content=\"{url}\">"
+        );
+        if index == 0 {
+            let _ = writeln!(
+                image_tags,
+                "    <meta name=\"twitter:image\" content=\"{url}\">"
+            );
+        }
+    }
+    let image = unfurl.images.iter().fold(String::new(), |mut out, url| {
+        let _ = writeln!(
+            out,
+            "      <img class=\"media\" src=\"{}\" alt=\"\" referrerpolicy=\"no-referrer\">",
             escape(url)
-        )
+        );
+        out
     });
 
     format!(
@@ -165,7 +175,7 @@ mod tests {
         Unfurl {
             title: "Ada (@ada@example.social)".to_owned(),
             description: "hello world".to_owned(),
-            image: Some("https://files.example/a.png".to_owned()),
+            images: vec!["https://files.example/a.png".to_owned()],
             canonical: "https://example.social/@ada/1".to_owned(),
             author_acct: "ada@example.social".to_owned(),
             published_at: "2026-11-07T00:00:00.000Z".to_owned(),
@@ -184,7 +194,7 @@ mod tests {
     #[test]
     fn quotes_in_an_image_url_stay_inside_the_attribute() {
         let mut post = sample();
-        post.image = Some("https://files.example/a.png\" onload=\"alert(1)".to_owned());
+        post.images = vec!["https://files.example/a.png\" onload=\"alert(1)".to_owned()];
         let html = page(&post, "https://nodus.example/s/example.social/1", "/");
         assert!(!html.contains("onload=\"alert"));
         assert!(html.contains("&quot; onload=&quot;alert(1)"));
@@ -193,7 +203,7 @@ mod tests {
     #[test]
     fn a_post_without_an_image_uses_a_small_card() {
         let mut post = sample();
-        post.image = None;
+        post.images.clear();
         let html = page(&post, "https://nodus.example/s/example.social/1", "/");
         assert!(html.contains("name=\"twitter:card\" content=\"summary\""));
         assert!(!html.contains("og:image"));
