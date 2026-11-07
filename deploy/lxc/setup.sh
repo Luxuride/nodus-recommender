@@ -61,6 +61,20 @@ WantedBy=multi-user.target
 EOF
 }
 
+# Names served by the Caddy container on this bridge.
+#
+# Public DNS points these at the host's public address, and hairpin NAT does not
+# reach that address from inside the bridge, so a service that verifies a token by
+# calling its own instance would fail with a 503 on every request. The local
+# address is the same Caddy instance, with the same certificates.
+if ! grep -q "mastodon.luxuride.eu" /etc/hosts; then
+	cat >> /etc/hosts <<'HOSTS'
+
+# Names served by the Caddy container on this bridge (see deploy/lxc/README.md).
+10.0.1.2 nodus.luxuride.eu mastodon.luxuride.eu hyper.luxuride.eu luxuride.eu
+HOSTS
+fi
+
 unit feeds 2
 unit calculator 5
 systemctl daemon-reload

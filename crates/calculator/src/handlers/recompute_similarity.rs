@@ -35,7 +35,10 @@ use nodus_core::similarity::{
 };
 use nodus_store::affinity::{self, AffinityRow};
 use nodus_store::audience;
+use nodus_core::idf::follow_weight;
+use nodus_core::weighted_set::WeightedSet;
 use nodus_store::models::Job;
+use nodus_store::reference::{self, MAX_REFERENCES, ReferenceRow};
 use nodus_store::similarity::{self, NeighbourRow, UserGraph};
 use nodus_store::two_hop;
 use sqlx::PgPool;
@@ -153,6 +156,13 @@ impl RecomputeSimilarity {
         .await
         .map_err(|error| database(&error))?;
         merge_bridges(&mut candidate_rows, &bridges, &my_follows);
+        // References are the substitute for neighbours we do not have; on an instance
+        // with enough users this adds little, and with three users it is the difference
+        // between a feed and an empty list.
+        let stored_references =
+            merge_references(&self.pool, user_id, &graph, &my_follows, &mut candidate_rows)
+                .await
+                .map_err(|error| database(&error))?;
         candidate_rows.sort_by(|a, b| {
             b.affinity
                 .total_cmp(&a.affinity)
@@ -172,6 +182,7 @@ impl RecomputeSimilarity {
             info!(
                 user = %user_id,
                 neighbours = stored_neighbours,
+                references = stored_references,
                 candidates = stored_candidates,
                 "similarity pass finished"
             );
@@ -272,6 +283,114 @@ fn merge_bridges(
     }
 
     *candidates = by_account.into_values().collect();
+}
+
+/// One compared reference: id, similarity, coverage, and the follows it contributed.
+///
+/// The follow list is kept because merging needs it again after the top set is chosen;
+/// re-reading it would be a second query per reference for data already in hand.
+type ScoredReference = (i64, f64, f64, Vec<(i64, i32)>);
+
+/// Compare the user's follows against crawled accounts and fold the winners in.
+///
+/// Only the follow component is measurable for a reference — favourites and replies are
+/// visible only for our own users — so the score is the raw follow-set cosine rather
+/// than a blend. That makes references systematically weaker than user neighbours,
+/// which is the right direction to be wrong in: a reference is a substitute for taste we
+/// cannot observe, not a better copy of taste we can.
+///
+/// Returns how many neighbours were stored.
+async fn merge_references(
+    pool: &PgPool,
+    user_id: Uuid,
+    graph: &UserGraph,
+    my_follows: &BTreeSet<i64>,
+    candidates: &mut Vec<AffinityRow>,
+) -> Result<usize, sqlx::Error> {
+    let references = reference::gated(pool, MAX_REFERENCES).await?;
+    if references.is_empty() {
+        // Nothing has passed the coverage gate yet, which is the normal state until an
+        // expansion pass has walked somebody's following list.
+        let _ = reference::replace_for_user(pool, user_id, &[]).await?;
+        return Ok(0);
+    }
+
+    let mut mine = WeightedSet::new();
+    for (account_id, weight) in &graph.follow_weights {
+        mine.insert(identifier(*account_id), *weight);
+    }
+
+    let mut scored: Vec<ScoredReference> = Vec::new();
+    for candidate in &references {
+        let follows = reference::follows_of(pool, candidate.account_id).await?;
+        let mut theirs = WeightedSet::new();
+        for (account_id, followers) in &follows {
+            let count = u32::try_from(*followers).unwrap_or(0);
+            theirs.insert(identifier(*account_id), follow_weight(count));
+        }
+        let similarity = mine.cosine(&theirs);
+        if similarity >= MIN_SIMILARITY {
+            scored.push((candidate.account_id, similarity, candidate.coverage, follows));
+        }
+    }
+
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    scored.truncate(MAX_SIMILAR_USERS);
+
+    let rows: Vec<ReferenceRow> = scored
+        .iter()
+        .map(|(account_id, similarity, coverage, _)| ReferenceRow {
+            user_id,
+            account_id: *account_id,
+            similarity: narrow(*similarity),
+            co_follow: narrow(*similarity),
+            coverage: narrow(*coverage),
+        })
+        .collect();
+    let stored_rows = reference::replace_for_user(pool, user_id, &rows).await?;
+
+    let mut by_account: BTreeMap<i64, AffinityRow> = candidates
+        .drain(..)
+        .map(|row| (row.account_id, row))
+        .collect();
+    for (_, similarity, _, follows) in &scored {
+        for (account_id, followers) in follows {
+            if my_follows.contains(account_id) {
+                continue;
+            }
+            let count = u32::try_from(*followers).unwrap_or(0);
+            let contribution = narrow(*similarity * follow_weight(count));
+            by_account
+                .entry(*account_id)
+                .and_modify(|row| {
+                    row.affinity += contribution;
+                    row.support = row.support.saturating_add(1);
+                    if !row.sources.iter().any(|source| source == "reference") {
+                        row.sources.push("reference".to_owned());
+                    }
+                })
+                .or_insert_with(|| AffinityRow {
+                    account_id: *account_id,
+                    affinity: contribution,
+                    support: 1,
+                    sources: vec!["reference".to_owned()],
+                });
+        }
+    }
+    *candidates = by_account.into_values().collect();
+
+    Ok(usize::try_from(stored_rows).unwrap_or(usize::MAX))
+}
+
+/// Account ids are positive; `WeightedSet` keys set members by `u64`.
+fn identifier(account_id: i64) -> u64 {
+    u64::try_from(account_id).unwrap_or(0)
+}
+
+/// Narrow the core's `f64` to the `real` the tables store.
+#[allow(clippy::cast_possible_truncation)]
+fn narrow(value: f64) -> f32 {
+    value as f32
 }
 
 impl Handler for RecomputeSimilarity {

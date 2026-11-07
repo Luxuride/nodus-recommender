@@ -88,6 +88,9 @@ fn cors(state: &AppState) -> CorsLayer {
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
             HeaderName::from_static("x-contract-version"),
+            // The instance host is a header, not a path segment: one origin serves
+            // tokens for every instance the user is signed into.
+            HeaderName::from_static("x-instance-host"),
             HeaderName::from_static("x-request-id"),
         ])
         .max_age(std::time::Duration::from_secs(600))
