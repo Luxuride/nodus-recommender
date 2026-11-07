@@ -29,14 +29,14 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
+use nodus_core::idf::follow_weight;
 use nodus_core::similarity::{
     CANDIDATE_LIMIT, MAX_SIMILAR_USERS, MIN_SIMILARITY, SimilarityBreakdown, SimilarityWeights,
     blend, compare,
 };
+use nodus_core::weighted_set::WeightedSet;
 use nodus_store::affinity::{self, AffinityRow};
 use nodus_store::audience;
-use nodus_core::idf::follow_weight;
-use nodus_core::weighted_set::WeightedSet;
 use nodus_store::models::Job;
 use nodus_store::reference::{self, MAX_REFERENCES, ReferenceRow};
 use nodus_store::similarity::{self, NeighbourRow, UserGraph};
@@ -159,10 +159,15 @@ impl RecomputeSimilarity {
         // References are the substitute for neighbours we do not have; on an instance
         // with enough users this adds little, and with three users it is the difference
         // between a feed and an empty list.
-        let stored_references =
-            merge_references(&self.pool, user_id, &graph, &my_follows, &mut candidate_rows)
-                .await
-                .map_err(|error| database(&error))?;
+        let stored_references = merge_references(
+            &self.pool,
+            user_id,
+            &graph,
+            &my_follows,
+            &mut candidate_rows,
+        )
+        .await
+        .map_err(|error| database(&error))?;
         candidate_rows.sort_by(|a, b| {
             b.affinity
                 .total_cmp(&a.affinity)
@@ -330,7 +335,12 @@ async fn merge_references(
         }
         let similarity = mine.cosine(&theirs);
         if similarity >= MIN_SIMILARITY {
-            scored.push((candidate.account_id, similarity, candidate.coverage, follows));
+            scored.push((
+                candidate.account_id,
+                similarity,
+                candidate.coverage,
+                follows,
+            ));
         }
     }
 

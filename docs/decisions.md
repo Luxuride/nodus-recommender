@@ -40,6 +40,7 @@ documents can cite them (`D4`).
 
 
 | D15 | **No Mastodon mark in any name** | the trademark policy forbids the word mark in a product, service or company name, and the software licence grants no licence to the marks; the project is `Nodus`, crates are `nodus-*`, and the mark appears only in sentences that state compatibility (see [11-trademark.md](11-trademark.md)) | never; this is a legal constraint, not a preference |
+| D31 | **Similarity neighbours may be accounts we crawl, gated by coverage** | a young instance has three users and the taste hop needs neighbours: accounts whose follows `expand_follows` walked are the only supply that scales, and the comparison is the same follow-set cosine. Honesty comes from the gate, not the source — below `MIN_COVERAGE` (0.8) of a claimed `following_count` or below `MIN_KNOWN_FOLLOWS` (40), the stored follows are a prefix and cosine measures crawl depth. Our own users are excluded, because they are compared through `user_similarity` where favourites and replies exist too, and scoring them twice would double-count them at a lower fidelity | the expansion pass stores complete follow sets for a measurable cohort (an instance API that exposes full pagination cheaply), at which point the gate relaxes to the absolute floor and references become first-class neighbours rather than a fallback |
 
 ## Notes on the ones that cost the most
 
@@ -187,3 +188,25 @@ lookup is by `feed_id` and a snapshot with no rows left is unresolvable. `410
 feed_expired` tells the client the truth — start again — instead of a 404 it would
 have to guess about, or a 200 with a shuffled list, which is the failure mode that
 makes people distrust a recommendation feed.
+
+### Why references are gated by coverage (D31 in detail)
+
+`expand_follows` stops after a bounded number of pages: an account following five
+thousand people is stored as the first few hundred. Cosine over that prefix is not a
+noisier version of the true similarity — it is biased, and biased in one direction,
+because everybody's stored prefix is dominated by the same early-followed accounts. Two
+heavy followers would look alike through the accounts they both follow first, whatever
+they actually read.
+
+So the gate is a claim about measurement, not about quality: at 0.8 coverage the missing
+tail can still reorder a ranking, but it cannot manufacture agreement, and the absolute
+floor of 40 follows stops the ratio from certifying an account that follows twelve people
+(perfect coverage, nothing to compare). Coverage is stored with every neighbour
+(`reference_similarity.coverage`) so a surprising recommendation can be explained as "this
+neighbour was measured against 90% of its follows" long after the crawl that produced it.
+
+The exclusion of our own users is the other half. A user is comparable on follows,
+favourites, boosts and replies; a reference account only on follows and boosts. Including
+users in both poles would count the same evidence twice and, because the reference
+comparison is the cheaper one, would drift the neighbour set toward whichever accounts
+happened to be crawled most.

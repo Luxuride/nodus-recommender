@@ -177,13 +177,15 @@ pub async fn for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<ReferenceRow>,
     .await
     .map(|rows| {
         rows.into_iter()
-            .map(|(account_id, similarity, co_follow, coverage)| ReferenceRow {
-                user_id,
-                account_id,
-                similarity,
-                co_follow,
-                coverage,
-            })
+            .map(
+                |(account_id, similarity, co_follow, coverage)| ReferenceRow {
+                    user_id,
+                    account_id,
+                    similarity,
+                    co_follow,
+                    coverage,
+                },
+            )
             .collect()
     })
 }

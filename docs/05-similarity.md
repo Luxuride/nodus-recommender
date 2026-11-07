@@ -101,6 +101,28 @@ for v in top50_similar(u):
 `support` is what the UI shows ("followed by 4 people you follow") and it is a
 better explanation than the raw score.
 
+#### Where the neighbours come from
+
+Two populations can sit at `v`, and they are not interchangeable:
+
+* **our own users** (`user_similarity`) — measurable on follows, favourites, boosts and
+  replies, so the blend reaches the full weight sum;
+* **crawled accounts** (`reference_similarity`) — measurable on follows and, where their
+  posts are stored, boosts. They reach at most ~0.90 of the weight sum, which is what D30
+  renormalises for.
+
+The second population exists because the first one is empty on a young instance: three
+users produce three neighbours, and a top-50 cut over three rows recommends whatever those
+three follow. Accounts whose follows `expand_follows` walked are available immediately after
+the first expansion pass, so the taste hop fills while the user base is still small.
+
+They enter only through a **coverage gate** (`store::reference`, D31): at least 0.8 of the
+account's claimed `following_count` must be stored, and at least 40 follows. Both bounds
+matter — a heavy follower stored as a prefix would agree with every other heavy follower
+through the same early-followed accounts, and a perfect ratio over twelve follows is a
+perfect measurement of nothing. The reference rows record the coverage they were scored
+under, so "why is this here" has a numeric answer later.
+
 ### 2. Two-hop graph path (broadens coverage)
 
 Accounts followed by people `u` follows — the classic "follows of followees":
