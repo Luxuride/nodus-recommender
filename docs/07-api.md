@@ -289,8 +289,22 @@ via the instance when the user opens a post.
 
 ### `POST /api/v1/feed/:feed_id/refresh`
 
-Explicit re-rank (pull-to-refresh). Rate-limited to 1 per 30 s per token; returns
-a new `feed_id`.
+Explicit re-rank (pull-to-refresh); returns a new `feed_id`. The named snapshot must
+belong to the caller and must still be inside its 24-hour lifetime, otherwise the
+answer is `410 feed_expired` — a client with a stale tab should learn why rather than
+be handed a fresh list as if nothing happened.
+
+The refresh does **not** invalidate the old snapshot: a reader scrolling in another tab
+can keep paging it until its own lifetime ends, because their cursor points into a
+ranking that still exists. Only `GET /accounts` without a cursor is affected by the
+reuse window, and only an explicit refresh skips it.
+
+```json
+POST /api/v1/feed/0193f0a0-1c9e-7c1f-9b5a-3e0f1a2b4c5d/refresh
+→ 200 { "feed_id": "0193f0a0-2a11-7d3e-8f01-5b6c7d8e9f00", "items": [ … ], … }
+→ 400 { "error": { "code": "invalid_feed_id", … } }
+→ 410 { "error": { "code": "feed_expired", … } }
+```
 
 ## Feedback
 

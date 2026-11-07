@@ -21,22 +21,21 @@ use crate::state::AppState;
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
-use nodus_core::ranking::RankingWeights;
-use nodus_shared::{AccountFeed, AccountItem};
-use nodus_store::feed::{self, Candidate, NewItem};
-use std::collections::HashMap;
+use nodus_shared::AccountFeed;
+use nodus_store::feed::{self, Candidate};
 use std::time::Duration;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use self::params::{DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT, contract_gate, degraded_flag, split};
-use self::ranking::{is_fresh_rejection, reason_for, score};
-use self::response::{envelope, feed_account, snapshot_item};
+use self::ranking::is_fresh_rejection;
+use self::response::{envelope, snapshot_item};
 
 mod page;
 mod params;
 pub mod posts;
 mod ranking;
+pub mod refresh;
 mod response;
 
 pub use params::FeedParams;
@@ -99,76 +98,11 @@ pub async fn accounts(
         return Ok(reused);
     }
 
-    // First page: rank, record, then answer.
-    let model_version = feed::active_model_version(&state.pool).await?;
-    let now = OffsetDateTime::now_utc();
-    let mut candidates = without_fresh_rejections(
-        feed::candidates(&state.pool, user.id, limit + 1).await?,
-        now,
-    );
-    if candidates.is_empty() {
-        // No affinity has been materialised for this user yet: serve the
-        // instance-popular rung instead of an empty first page. One ranking pass
-        // covers both, so scores and ordering keep the same shape either way.
-        candidates = feed::popular_candidates(&state.pool, user.id, limit + 1).await?;
-    }
-    // The page is planned before ranking because exploration is about positions,
-    // not scores: the head is whatever the ranking says is best, and the explore
-    // slots come from a rank window below it (D26 needs them to keep producing
-    // evidence about accounts the ranking has given up on).
-    let feed_id = Uuid::now_v7();
-    let plan = page::plan(
-        candidates.len(),
-        usize::try_from(limit).unwrap_or(0),
-        seed_of(feed_id),
-    );
-    let more = plan.more;
-    let weights = RankingWeights::default();
-    let ranked = page::select(&candidates, &plan)
-        .into_iter()
-        .map(|candidate| {
-            (
-                score(candidate, weights, &user.instance_host, now),
-                candidate.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let new_items = ranked
-        .iter()
-        .map(|(value, candidate)| NewItem {
-            account_id: candidate.account_id,
-            score: *value,
-            reason: serde_json::to_value(reason_for(candidate)).unwrap_or_default(),
-        })
-        .collect::<Vec<_>>();
-    let persisted = feed::persist(&state.pool, user.id, feed_id, model_version, &new_items).await?;
-    let by_account: HashMap<i64, i64> = persisted
-        .into_iter()
-        .map(|(id, account)| (account, id))
-        .collect();
-
-    let items = ranked
-        .into_iter()
-        .filter_map(|(_, candidate)| {
-            let item_id = *by_account.get(&candidate.account_id)?;
-            Some(AccountItem {
-                item_id,
-                account: feed_account(&candidate),
-                reason: reason_for(&candidate),
-            })
-        })
-        .collect::<Vec<_>>();
-    let next_cursor =
-        more.then(|| cursor::encode(feed_id, items.last().map_or(0, |item| item.item_id)));
-    Ok(Json(envelope(
-        user.sync_enabled,
-        age,
-        degraded,
-        feed_id,
-        items,
-        next_cursor,
-    )))
+    // First page: rank, record, then answer. `refresh` already short-circuited the
+    // reuse window above; everything below is the shared fresh-page path.
+    Ok(Json(
+        refresh::fresh_page(&state, user, limit, age, degraded).await?,
+    ))
 }
 
 #[cfg(test)]

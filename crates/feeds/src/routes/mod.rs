@@ -37,6 +37,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/feed/accounts", axum::routing::get(feed::accounts))
         .route("/api/v1/feed/posts", axum::routing::get(feed::posts::posts))
+        .route(
+            "/api/v1/feed/{feed_id}/refresh",
+            axum::routing::post(feed::refresh::refresh),
+        )
         .route("/api/v1/events", axum::routing::post(events::collect))
         .route(
             "/api/v1/feedback/not-interested",
