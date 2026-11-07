@@ -212,7 +212,6 @@ fn clamp_to_clock_window(client_ts: OffsetDateTime, now: OffsetDateTime) -> Offs
     }
 }
 
-
 /// The dwell a client reported, or `None` when we do not want it.
 ///
 /// Only an impression carries attention: dwell is how long a *rendered* item held

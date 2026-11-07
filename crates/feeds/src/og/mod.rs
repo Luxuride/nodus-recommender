@@ -50,11 +50,7 @@ const NEGATIVE_TTL: Duration = Duration::from_secs(300);
 /// # Errors
 ///
 /// Returns [`UnfurlError`] when the status cannot be fetched or is not public.
-pub async fn resolve(
-    state: &AppState,
-    host: &str,
-    status_id: &str,
-) -> Result<Unfurl, UnfurlError> {
+pub async fn resolve(state: &AppState, host: &str, status_id: &str) -> Result<Unfurl, UnfurlError> {
     let key = cache_key(host, status_id);
     if let Some(cached) = read(&state.cache, &key).await {
         return cached;

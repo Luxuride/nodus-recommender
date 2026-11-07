@@ -101,10 +101,7 @@ pub async fn fetch(
         });
     }
 
-    let wire: Wire = response
-        .json()
-        .await
-        .map_err(|_| UnfurlError::Decode)?;
+    let wire: Wire = response.json().await.map_err(|_| UnfurlError::Decode)?;
     reduce(&wire, host, status_id)
 }
 

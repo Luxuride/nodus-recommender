@@ -6,7 +6,7 @@
 //! request per TTL rather than one per preview.
 
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
 use crate::og;
@@ -51,11 +51,7 @@ pub async fn short_link(
                 reason = error.reason(),
                 "could not unfurl a shared post"
             );
-            html(
-                StatusCode::NOT_FOUND,
-                og::page_unavailable(&app_url),
-                60,
-            )
+            html(StatusCode::NOT_FOUND, og::page_unavailable(&app_url), 60)
         }
     }
 }
