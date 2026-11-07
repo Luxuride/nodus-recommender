@@ -74,3 +74,15 @@ therefore builds in `rust:1-bookworm`, the same base as `recommender/Dockerfile`
 * **A second calculator replica.** One replica does not need Redis for correctness, only
   for restarts; `CALCULATOR_REPLICAS` exists so the check in `Config::validate` fires
   before the budgets are silently multiplied.
+
+## The public origin
+
+`nodus.luxuride.eu` is terminated by the Caddy instance in the `webserver` container
+(`10.0.1.2`), which already serves the other `*.luxuride.eu` sites. The site block lives
+in `recommender/deploy/caddy/nodus.caddy` and is installed as
+`/etc/caddy/nodus.caddy` with `import nodus.caddy` in the main Caddyfile.
+
+It serves the built client (`trunk build --release`, copied to `/srv/nodus`) at `/` and
+forwards `/api/*`, `/healthz` and `/readyz` to the feeds role at `10.0.1.18:3000`.
+Hashed assets get a one-year immutable cache; `index.html` is `no-cache` so a deploy
+cannot keep pointing at a bundle that no longer exists.

@@ -1,0 +1,34 @@
+# nodus: the web client at `/`, the recommendation service under `/api`.
+#
+# The client is a Leptos/wasm bundle built by `trunk build --release`; the service is the
+# `feeds` role running in LXC 118 on port 3000. TLS terminates here, so the service only
+# speaks plain HTTP on the internal bridge.
+#
+# The `/api` prefix is part of the service's own routes (`/api/v1/...`), so the proxy
+# passes the path through unchanged rather than stripping it.
+nodus.luxuride.eu {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy 10.0.1.18:3000
+	}
+
+	handle /healthz {
+		reverse_proxy 10.0.1.18:3000
+	}
+
+	handle /readyz {
+		reverse_proxy 10.0.1.18:3000
+	}
+
+	handle {
+		root * /srv/nodus
+		# Hashed asset names, so a long cache is safe; `index.html` must not be cached or
+		# a deploy would keep pointing at a bundle that no longer exists.
+		@assets path /nodus-web-*.wasm /nodus-web-*.js /tailwind-*.css
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
