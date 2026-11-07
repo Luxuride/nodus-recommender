@@ -252,6 +252,12 @@ a new `feed_id`.
 
 ## Feedback
 
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/events` | batched interaction telemetry (idempotent) |
+| `POST /api/v1/feedback/not-interested` | permanent per-user suppression |
+| `DELETE /api/v1/feedback/{item_id}` | undo a `dismiss` or `not_interested` for one served item |
+
 ### `POST /api/v1/events`
 
 Batched, idempotent:
@@ -285,6 +291,22 @@ Response: `204 No Content`.
 
 Permanent per-user suppression; also drops the account's posts from that user's
 future feeds.
+
+### `DELETE /api/v1/feedback/{item_id}`
+
+Undo the `dismiss` or `not_interested` recorded against one served item.
+
+The server deletes the event; it does not record an opposite one. That is the whole
+point: the candidate query already treats an absent rejection as no evidence, and a
+second kind such as `undismiss` would need its own half-life and its own line in
+every query that looks at rejections (D26). Since the candidate query reads
+`interaction_event` inside the ranking request, the rejection is gone from the next
+feed response — no cache to invalidate and no delay for the decay to work through.
+
+- `204 No Content` when a rejection was removed.
+- `404` (`not_found`) when the item had nothing to undo, so the client can say
+  "nothing to undo" rather than report success for a no-op.
+- `400` with `invalid_item_id` when the path segment is not an integer.
 
 ## Account and settings
 

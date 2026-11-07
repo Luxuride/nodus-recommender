@@ -30,6 +30,7 @@ pub mod crypto;
 pub mod events;
 pub mod export;
 pub mod feed;
+pub mod feedback;
 pub mod jobs;
 pub mod models;
 pub mod retention;

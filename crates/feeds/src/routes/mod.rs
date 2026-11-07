@@ -12,6 +12,7 @@ pub mod health;
 pub mod meta;
 pub mod share;
 pub mod sync;
+pub mod undo;
 
 use crate::state::AppState;
 use axum::Router;
@@ -39,6 +40,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/feedback/not-interested",
             axum::routing::post(feedback::not_interested),
+        )
+        .route(
+            "/api/v1/feedback/{item_id}",
+            axum::routing::delete(undo::lift),
         )
         .route(
             "/api/v1/me",
