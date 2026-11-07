@@ -16,6 +16,7 @@
 pub mod damping;
 pub mod diversity;
 pub mod drift;
+pub mod evidence;
 pub mod idf;
 pub mod labels;
 pub mod post;
@@ -30,8 +31,11 @@ pub use diversity::{
 pub use drift::{
     STABILITY_TAU_DAYS, Stability, TASTE_TAU_DAYS, recency_weight, stability_bonus, weighted_follow,
 };
+pub use evidence::{
+    PENALTY_NORMALISER, confidence, decayed_penalty, dwell_correction, normalized_penalty, shrink,
+};
 pub use idf::{follow_weight, status_weight, target_weight};
-pub use labels::{EventKind, label};
+pub use labels::{EventKind, label, label_with_dwell};
 pub use post::{
     MEDIA_PENALTY, POST_HALF_LIFE_HOURS, POST_MAX_AGE_DAYS, REPLY_PENALTY, SEEN_PENALTY, post_score,
 };

@@ -23,8 +23,16 @@ score(u,c) =  w_sim      · affinity[u,c] · taste_factor(u,c) · popularity_lif
             + w_lang     · (u.languages ∩ c.languages ≠ ∅)
             + w_stable   · stability_bonus(u,c)          -- exp(-shown_age_days / 7), capped
             − w_fatigue  · seen_count(u,c, 7d)
-            − w_dismiss  · dismissed(u,c)
+            − w_penalty  · penalty(u,c)                  -- decaying, shrunk by evidence, 0..1
 ```
+
+`penalty` is not a flag. A rejection is stored as `(strength, recorded_at)` and
+read back as `strength · 0.5^(age / half_life)`, halving every **7 days** for a
+`dismiss` and **30 days** for a `not_interested`, then scaled by
+`n / (n + 3)` where `n` is the impressions this user has had of that account — so
+one impression cannot bury anybody. Nothing runs to expire it, and no account is
+excluded forever: the explore channel keeps sampling accounts whose penalty is
+decaying, which is what gives later positive evidence a chance to outvote it.
 
 `taste_factor` is `1 − w_taste · (1 − exp(−follow_age_days / 180))`: taste decays
 with a 180-day constant, and `w_taste` decides how much of that decay survives into
@@ -103,7 +111,7 @@ own followees' recent boosts. Per post:
 ```text
 post_score = affinity(author)                    -- account score above, normalized
            × recency_decay(created_at, h=8)      -- 0.5^(age_hours / 8)
-           × engagement_prior(post)              -- log1p(fav + 2·boost + 2·reply), popularity-damped
+           × engagement_prior(post)              -- attributed: similar accounts that boosted or replied, weighted by similarity
            × reply_penalty                       -- 0.5 if it replies to a non-followee
            × media_penalty                       -- 0.9 if it has no text and the client cannot preload media
            × (1 − 0.15·min(seen_count, 3))       -- do not repeat a post
@@ -131,6 +139,58 @@ Telemetry (opt-in, [08-privacy.md](08-privacy.md)) gives implicit labels:
 | `impression` | exposure, not preference | 0.0 |
 | `dismiss` | negative | −2.0 |
 | `not_interested` | strong negative | −5.0 |
+
+### Attention is a correction, not a label
+
+Impressions optionally carry `dwell_ms` (separate opt-in; `None` when not
+measured or not consented). It never becomes a label of its own, because dwell
+conflates reading, leaving a tab open and a slow network:
+
+```text
+dwell_correction = 0.35 · tanh( ln(dwell / baseline) / 2 )     clamped to ±0.5
+label(kind) + dwell_correction
+```
+
+`baseline` is **that user's own median dwell**, never a global threshold — a person
+who habitually leaves posts open has a high baseline, so only *their* unusually
+long dwells score. The ±0.5 bound is half a click, so attention can nudge a label
+but never reclassify an action; the client sends nothing unless the tab was visible
+and focused and the item was actually rendered for at least 250 ms.
+
+### Negatives decay; nothing is permanent
+
+A rejection is stored as `(strength, recorded_at)` and read back decayed — 7-day
+half-life for `dismiss`, 30 for `not_interested` — and scaled by `n / (n + 3)` over
+that user's impressions of the account. The design consequence is a requirement on
+serving: **the explore channel must keep sampling accounts whose penalty is
+decaying**, or the decay is decorative because nothing can ever lift it. Ladder:
+
+| Signal | Magnitude | Half-life | Outvoted by |
+| --- | --- | --- | --- |
+| fast skip | ±0.5 correction | none (per impression) | anything |
+| dismiss | −2.0 | 7 days | ordinary positive evidence |
+| not_interested | −5.0 | 30 days | repeated positive evidence |
+| follow / boost / reply | +3.0 / +2.0 | 180 days (taste drift) | time only |
+
+### Thin evidence moves nothing
+
+Every correction is shrunk by `n / (n + prior)`: `prior = 25` impressions for a
+user's dwell baseline, `3` for an account's penalty. Three impressions give 11% of
+a correction's strength; two hundred give 89%. Explicit instructions (`follow`,
+`dismiss`, `not_interested`) are *not* shrunk — they are commands, not estimates,
+and their inertia lives in the half-life. The explore rate scales the same way, so
+a brand-new user's feed does not get reshuffled by random probes.
+
+### Popularity is not quality
+
+`favourite_count` is a population count, so it belongs in the **denominator**: it
+survives only as `w_status = 1 / ln(e + favourite_count)`, which discounts redundant
+evidence (a boost of a viral post says little). It is never a quality signal — a
+`log1p(fav + 2·boost + 2·reply)` term ranks what everybody already liked, which is
+the behaviour this project exists to replace. `engagement_prior` therefore counts
+**attributed** engagement only: boosts and replies by accounts similar to this user.
+Zero is the honest value when there is none, and the popularity rung is labelled as
+unpersonalised in the UI rather than quietly ranked as if it were good.
 
 **Model.** Logistic regression over the same features used above (plus reason
 code, support bucket, follower-count bucket, shared-instance flag, hour-of-day

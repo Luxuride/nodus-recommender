@@ -40,9 +40,27 @@ pub fn label(kind: EventKind) -> f64 {
     }
 }
 
+/// Label for an event, adjusted by how long the item was actually looked at.
+///
+/// `dwell_ms` is `None` when the client did not measure it, or when the user did
+/// not consent to attention measurement; the label is then exactly [`label`]. The
+/// adjustment is [`crate::evidence::dwell_correction`]: symmetric around the user's
+/// own median, bounded to ±0.5, so attention can nudge a label but never
+/// reclassify an action — a follow with an unexplainedly short dwell is still a
+/// follow.
+#[must_use]
+pub fn label_with_dwell(kind: EventKind, dwell_ms: Option<u32>, baseline_ms: Option<u32>) -> f64 {
+    match (dwell_ms, baseline_ms) {
+        (Some(dwell), Some(baseline)) => {
+            label(kind) + crate::evidence::dwell_correction(dwell, baseline)
+        }
+        _ => label(kind),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{EventKind, label};
+    use super::{EventKind, label, label_with_dwell};
 
     fn approx(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-9
@@ -63,6 +81,34 @@ mod tests {
             assert!(label(pair[0]) < label(pair[1]));
         }
         assert!(approx(label(EventKind::Reply), label(EventKind::Boost)));
+    }
+
+    #[test]
+    fn dwell_nudges_a_label_without_reclassifying_it() {
+        let follow = label(EventKind::Follow);
+        let distractedly = label_with_dwell(EventKind::Follow, Some(200), Some(8_000));
+        assert!(distractedly < follow);
+        assert!(
+            distractedly > label(EventKind::Boost),
+            "a follow stays worth more than a boost: {distractedly}"
+        );
+        let attentively = label_with_dwell(EventKind::Impression, Some(60_000), Some(8_000));
+        assert!(attentively > 0.0);
+        assert!(attentively < label(EventKind::Click));
+    }
+
+    #[test]
+    fn an_unmeasured_dwell_leaves_the_label_alone() {
+        for kind in [EventKind::Follow, EventKind::Impression, EventKind::Dismiss] {
+            assert!(approx(
+                label_with_dwell(kind, None, Some(8_000)),
+                label(kind)
+            ));
+            assert!(approx(
+                label_with_dwell(kind, Some(4_000), None),
+                label(kind)
+            ));
+        }
     }
 
     #[test]

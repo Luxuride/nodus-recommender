@@ -45,8 +45,13 @@ pub struct RankingWeights {
     pub stability: f64,
     /// Repeated exposure without interaction (default `0.30`, subtracted).
     pub fatigue: f64,
-    /// Explicit "not interested" (default `2.00`, subtracted).
-    pub dismissal: f64,
+    /// Rejection strength, `0.0..=1.0` where `1.0` is a fresh explicit rejection
+    /// (default `2.00`, subtracted).
+    ///
+    /// The signal is [`CandidateSignals::penalty`], not a flag: a rejection decays
+    /// on its own half-life and is shrunk by how much evidence stands behind it, so
+    /// it fades instead of excluding an account forever. `0.0` disables the term.
+    pub penalty: f64,
 }
 
 impl Default for RankingWeights {
@@ -61,7 +66,7 @@ impl Default for RankingWeights {
             language: 0.10,
             stability: 0.15,
             fatigue: 0.30,
-            dismissal: 2.00,
+            penalty: 2.00,
         }
     }
 }
@@ -93,8 +98,14 @@ pub struct CandidateSignals {
     pub language_match: bool,
     /// Impressions of this candidate for this user in the last seven days.
     pub seen_count_7d: u32,
-    /// Whether the user dismissed or marked the candidate not interested.
-    pub dismissed: bool,
+    /// Rejection strength for this candidate, `0.0..=1.0`.
+    ///
+    /// Produced by [`crate::evidence::normalized_penalty`]: the stored penalty
+    /// decayed by its half-life, shrunk by the number of impressions that back it,
+    /// and normalised so `1.0` is a fresh explicit rejection. A candidate with no
+    /// rejection history is `0.0`, which is also [`Default`]'s value — absence of
+    /// evidence is not evidence.
+    pub penalty: f64,
     /// Days since the user's follow that contributes to this candidate, if any.
     ///
     /// `None` means the affinity has no per-follow age attached (an aggregate
@@ -121,7 +132,7 @@ impl Default for CandidateSignals {
             same_instance: false,
             language_match: false,
             seen_count_7d: 0,
-            dismissed: false,
+            penalty: 0.0,
             follow_age_days: None,
             stability: Stability::default(),
             popularity_lift: 1.0,
@@ -148,8 +159,13 @@ const FRESHNESS_TAU_DAYS: f64 = 30.0;
 ///   + w.language·language_match
 ///   + stability_bonus(stability, w.stability)
 ///   − w.fatigue·seen_count_7d
-///   − w.dismissal·dismissed
+///   − w.penalty·penalty
 /// ```
+///
+/// where `penalty` is a decaying fraction (`0.0..=1.0`) rather than a flag, so a
+/// rejection fades by half every seven (`dismiss`) or thirty (`not_interested`)
+/// days and can be outvoted by later positive evidence — which requires the explore
+/// channel to keep showing such accounts, otherwise nothing can outvote it.
 ///
 /// where `taste = 1 − w.taste·(1 − recency_weight(follow_age_days))` and `taste =
 /// 1` when `follow_age_days` is `None`, and `lift = popularity_lift`. The lift
@@ -176,7 +192,7 @@ const FRESHNESS_TAU_DAYS: f64 = 30.0;
 /// to `affinity` before `w.similarity`, so at equal raw affinity a fresh follow
 /// strictly outranks a stale one, which is the intended change, not an accident.
 /// The stability bonus is added after the positive terms and before the fatigue
-/// and dismissal penalties, so those penalties still dominate the list.
+/// and penalty terms, so those penalties still dominate the list.
 #[must_use]
 pub fn score(candidate: &CandidateSignals, weights: RankingWeights) -> f64 {
     let affinity = candidate.affinity
@@ -190,7 +206,7 @@ pub fn score(candidate: &CandidateSignals, weights: RankingWeights) -> f64 {
     total += weights.language * flag(candidate.language_match);
     total += stability_bonus(&candidate.stability, weights.stability);
     total -= weights.fatigue * f64::from(candidate.seen_count_7d);
-    total -= weights.dismissal * flag(candidate.dismissed);
+    total -= weights.penalty * candidate.penalty;
     total
 }
 
@@ -228,7 +244,7 @@ mod tests {
             same_instance: false,
             language_match: false,
             seen_count_7d: 0,
-            dismissed: false,
+            penalty: 0.0,
             follow_age_days: None,
             stability: Stability::default(),
             popularity_lift: 1.0,
@@ -253,17 +269,17 @@ mod tests {
     }
 
     #[test]
-    fn dismissal_dominates_otherwise_great_signals() {
+    fn a_full_penalty_dominates_otherwise_great_signals() {
         let weights = RankingWeights::default();
 
-        let mut dismissed = candidate();
-        dismissed.affinity = 1.0;
-        dismissed.support = 50;
-        dismissed.engagement_prior = 1.0;
-        dismissed.age_days = 0.0;
-        dismissed.same_instance = true;
-        dismissed.language_match = true;
-        dismissed.dismissed = true;
+        let mut rejected = candidate();
+        rejected.affinity = 1.0;
+        rejected.support = 50;
+        rejected.engagement_prior = 1.0;
+        rejected.age_days = 0.0;
+        rejected.same_instance = true;
+        rejected.language_match = true;
+        rejected.penalty = 1.0;
 
         let mut mediocre = candidate();
         mediocre.affinity = 0.2;
@@ -271,7 +287,27 @@ mod tests {
         mediocre.engagement_prior = 0.0;
         mediocre.age_days = 90.0;
 
-        assert!(score(&dismissed, weights) < score(&mediocre, weights));
+        assert!(score(&rejected, weights) < score(&mediocre, weights));
+    }
+
+    #[test]
+    fn a_decayed_penalty_stops_dominating() {
+        let weights = RankingWeights::default();
+        let mut faded = candidate();
+        faded.affinity = 1.0;
+        faded.support = 50;
+        faded.penalty = 0.1;
+
+        let mut mediocre = candidate();
+        mediocre.affinity = 0.2;
+        mediocre.support = 0;
+        mediocre.engagement_prior = 0.0;
+        mediocre.age_days = 90.0;
+
+        assert!(
+            score(&faded, weights) > score(&mediocre, weights),
+            "a rejection that has almost decayed must not outrank strong evidence"
+        );
     }
 
     #[test]
@@ -299,7 +335,7 @@ mod tests {
             language: 0.0,
             stability: 0.0,
             fatigue: 0.0,
-            dismissal: 0.0,
+            penalty: 0.0,
         };
         let mut backed = candidate();
         backed.support = 50;

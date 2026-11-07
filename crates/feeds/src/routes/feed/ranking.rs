@@ -31,7 +31,7 @@ pub(super) fn score(candidate: &Candidate, weights: RankingWeights, home: &str) 
             same_instance: candidate.instance_host == home,
             language_match: false,
             seen_count_7d: u32::try_from(candidate.seen_count_7d).unwrap_or(0),
-            dismissed: false,
+            penalty: 0.0,
             // A candidate is by definition not followed yet, so there is no follow
             // edge to age; the taste decay applies to the affinity the calculator
             // already aged, not a second time here.
@@ -57,6 +57,10 @@ fn shown_age_days(served_at: OffsetDateTime) -> f64 {
 }
 
 /// The reason shown to the user, derived from which sources produced the candidate.
+///
+/// A candidate with no sources came from the instance-popular rung served on cold
+/// start, not from an affinity calculation, so it is named for what it is instead of
+/// claiming a signal the user never provided.
 pub(super) fn reason_for(candidate: &Candidate) -> Reason {
     let (code, via) = match candidate
         .sources
@@ -67,7 +71,7 @@ pub(super) fn reason_for(candidate: &Candidate) -> Reason {
     {
         [only] => ((*only).to_owned(), None),
         [first, ..] => ("multiple_signals".to_owned(), Some((*first).to_owned())),
-        [] => ("affinity".to_owned(), None),
+        [] => ("popular_fallback".to_owned(), None),
     };
     Reason {
         code,
