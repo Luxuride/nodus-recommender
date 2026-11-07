@@ -59,11 +59,17 @@ pub(super) async fn fresh_page(
     // from a rank window below it (D26 needs them to keep producing evidence about
     // accounts the ranking has given up on).
     let feed_id = Uuid::now_v7();
-    let plan = page::plan(
+    let mut plan = page::plan(
         candidates.len(),
         usize::try_from(limit).unwrap_or(0),
         seed_of(feed_id),
     );
+    // One slot goes to an account the ranking has buried but whose rejection has faded:
+    // sampling a rank window can never reach those, so without this a decayed penalty
+    // would be permanent in practice even though the model says it is not (D26).
+    let _ = page::promote_recovery(&mut plan, &candidates, |candidate| {
+        recovering(candidate, now)
+    });
     let more = plan.more;
     let weights = RankingWeights::default();
     let ranked = page::select(&candidates, &plan)
@@ -111,6 +117,28 @@ pub(super) async fn fresh_page(
         items,
         next_cursor,
     ))
+}
+
+/// Whether an account has served its penalty and deserves one more look.
+///
+/// Two conditions, both required: the penalty has decayed below half (so the rejection
+/// is old relative to its half-life) and the account has not been shown for a week (so
+/// the re-exposure is a real test rather than another impression of a list the user
+/// already skipped).
+fn recovering(candidate: &nodus_store::feed::Candidate, now: OffsetDateTime) -> bool {
+    const FADED: f64 = 0.5;
+    const QUIET_DAYS: i64 = 7;
+
+    if candidate.rejected_kind.is_none() {
+        return false;
+    }
+    if super::ranking::penalty(candidate, now) >= FADED {
+        return false;
+    }
+    candidate.last_shown_at.is_none_or(|shown| {
+        let quiet = now - shown;
+        quiet.whole_days() >= QUIET_DAYS
+    })
 }
 
 /// `POST /api/v1/feed/{feed_id}/refresh`

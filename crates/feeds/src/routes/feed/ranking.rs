@@ -96,7 +96,7 @@ const MIN_COUNTER_IMPRESSIONS: i32 = 20;
 /// `0.0` for no rejection and for a kind this build does not recognise: `kind` is
 /// stored as text, and a value written by a newer producer must not be read as
 /// evidence against an account.
-fn penalty(candidate: &Candidate, now: OffsetDateTime) -> f64 {
+pub(super) fn penalty(candidate: &Candidate, now: OffsetDateTime) -> f64 {
     let Some(stored) = candidate.rejected_kind.as_deref() else {
         return 0.0;
     };

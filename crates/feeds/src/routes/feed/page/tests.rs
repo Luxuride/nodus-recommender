@@ -72,3 +72,106 @@ fn the_indices_are_in_page_order() {
     assert!(head.windows(2).all(|pair| pair[1] == pair[0] + 1));
     assert!(explore.windows(2).all(|pair| pair[1] > pair[0]));
 }
+
+#[test]
+fn a_decayed_rejection_takes_an_explore_slot() {
+    use nodus_store::feed::Candidate;
+    use time::OffsetDateTime;
+
+    fn candidate() -> Candidate {
+        Candidate {
+            account_id: 1,
+            affinity: 0.5,
+            support: 1,
+            sources: Vec::new(),
+            computed_at: OffsetDateTime::UNIX_EPOCH,
+            last_shown_at: None,
+            seen_count_7d: 0,
+            rejected_kind: None,
+            rejected_at: None,
+            impressions: 0,
+            follow_through_shown: None,
+            follow_through_followed: None,
+            expected_follow_rate: None,
+            acct: "a@b".to_owned(),
+            display_name: None,
+            note: None,
+            avatar_url: None,
+            followers_count: 0,
+            bot: false,
+            last_status_at: None,
+            instance_host: "b".to_owned(),
+        }
+    }
+
+    let candidates = vec![candidate(); 200];
+    let mut plan = plan(candidates.len(), 20, 7);
+    let before = plan.explore.clone();
+
+    let promoted = super::promote_recovery(&mut plan, &candidates, |_| false);
+    assert!(!promoted, "nothing to promote");
+    assert_eq!(plan.explore, before);
+
+    let promoted = super::promote_recovery(&mut plan, &candidates, |candidate| {
+        candidate.account_id == 1
+    });
+    assert!(
+        promoted,
+        "a recovering candidate below the head takes a slot"
+    );
+    assert!(
+        plan.explore.contains(&plan.head),
+        "the first candidate below the head took the slot: {:?}",
+        plan.explore
+    );
+    assert_eq!(plan.explore.len(), before.len(), "the page did not grow");
+}
+
+#[test]
+fn a_recovering_candidate_the_page_already_shows_is_not_promoted() {
+    use nodus_store::feed::Candidate;
+    use time::OffsetDateTime;
+
+    let candidate = Candidate {
+        account_id: 1,
+        affinity: 0.5,
+        support: 1,
+        sources: Vec::new(),
+        computed_at: OffsetDateTime::UNIX_EPOCH,
+        last_shown_at: None,
+        seen_count_7d: 0,
+        rejected_kind: Some("dismiss".to_owned()),
+        rejected_at: None,
+        impressions: 0,
+        follow_through_shown: None,
+        follow_through_followed: None,
+        expected_follow_rate: None,
+        acct: "a@b".to_owned(),
+        display_name: None,
+        note: None,
+        avatar_url: None,
+        followers_count: 0,
+        bot: false,
+        last_status_at: None,
+        instance_host: "b".to_owned(),
+    };
+    let candidates: Vec<_> = (0..200)
+        .map(|index| {
+            let mut copy = candidate.clone();
+            copy.account_id = index;
+            copy
+        })
+        .collect();
+    let mut plan = plan(candidates.len(), 20, 7);
+    let before = plan.explore.clone();
+
+    // Only the head's own candidate is flagged, and the page already shows it.
+    let promoted = super::promote_recovery(&mut plan, &candidates, |candidate| {
+        candidate.account_id == 3
+    });
+    assert!(
+        !promoted,
+        "a candidate inside the head is already on the page"
+    );
+    assert_eq!(plan.explore, before);
+}

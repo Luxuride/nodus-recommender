@@ -75,6 +75,46 @@ pub(super) fn plan(available: usize, limit: usize, seed: u64) -> Plan {
     }
 }
 
+/// Spends one explore slot on a candidate the ranking has given up on.
+///
+/// Exploration samples a rank window, and a penalised account scores low — so it sits
+/// *below* that window and the sampler can never reach it. D26 says a rejection must
+/// not be permanent, which makes this the one place that has to look outside the
+/// window on purpose.
+///
+/// Returns whether a slot was given up. The candidate must already sit below the head:
+/// promoting something the page shows anyway would spend a slot to change nothing.
+pub(super) fn promote_recovery(
+    plan: &mut Plan,
+    candidates: &[Candidate],
+    is_recovering: impl Fn(&Candidate) -> bool,
+) -> bool {
+    // The highest-ranked recovering candidate: the ranking still says it is the best
+    // of the reconsiderable ones, and the point is to test that claim.
+    let Some(recovering) = candidates
+        .iter()
+        .enumerate()
+        .skip(plan.head)
+        .find(|(_, candidate)| is_recovering(candidate))
+        .map(|(index, _)| index)
+    else {
+        return false;
+    };
+    if plan.explore.contains(&recovering) {
+        return false;
+    }
+    // Replace the deepest slot rather than grow the page: the head is the answer, and a
+    // page of twenty-one items is a lie about the limit that was asked for.
+    match plan.explore.last_mut() {
+        Some(slot) => {
+            *slot = recovering;
+            plan.explore.sort_unstable();
+            true
+        }
+        None => false,
+    }
+}
+
 /// The candidates a plan selects, in page order.
 pub(super) fn select<'a>(candidates: &'a [Candidate], plan: &Plan) -> Vec<&'a Candidate> {
     plan.indices()
