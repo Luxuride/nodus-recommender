@@ -323,6 +323,8 @@ Batched, idempotent:
   "feed_id": "01JABCDEF...",
   "events": [
     { "item_id": 918273, "kind": "impression", "dwell_ms": 900, "client_ts": "2026-11-06T21:04:11Z" },
+    /* dwell is optional and capped at 120 s; the client sends the impression when the
+       card leaves the screen, so one item produces exactly one impression row */
     { "item_id": 918273, "kind": "click", "client_ts": "2026-11-06T21:04:14Z" }
   ]
 }
@@ -418,7 +420,7 @@ No `Access-Control-Allow-Credentials` (there are no cookies), no wildcard, and
 
 Outside `/api/v1`, one route exists for people rather than for the client:
 
-```
+```text
 GET /s/{instance}/{status_id}
 ```
 

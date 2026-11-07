@@ -105,6 +105,8 @@ Two properties are deliberate and worth keeping:
 | D4a | one per-instance dynamically registered `oauth_app`, server-side PKCE sessions | client registers itself; server optionally holds a token copy | a full client owns the OAuth flow; keeping a second registration would mean two identities per instance |
 | D8a | standalone web app for the Feed tab, SSR-capable | full CSR client | a standalone Feed app is not a client; the Feed must live where timelines do |
 | D10a | project named `MastodonReccom`, crates `mastodon-reccom-*` | `Nodus`, crates `nodus-*` | the mark may not appear in a product or service name (D15) |
+| D36 | **An impression is written on unmount, carrying dwell** | The impression is the denominator of every rate and the only evidence that lets a rejection decay (D26), so it must be written exactly once per item. The client reports it when the card leaves the screen, with the time it spent there, because that is the only moment dwell is known and the server deduplicates on `(item_id, kind, client_ts)` — a second report would double the denominator rather than correct it. The accepted cost is a small hole at the tail of the last page: an item visible when the tab closes is counted only if the page-hide flush reaches the server | the hole grows large enough to distort follow-through, or a `View` event kind earns its cost (D7) |
+
 ### Why not `diesel-async` (D19 in detail)
 
 The question is fair: `diesel-async 0.9` exists, `diesel 2.3` is mature, and "async

@@ -61,6 +61,16 @@ it: an XSS in a proxy-based design steals the session cookie instead, and a
 session-compromise is strictly worse (it can act as the user everywhere,
 including in our recommendation engine).
 
+### Attention, and what it is not
+
+When a user opts in to attention measurement, the client reports how long a
+recommended card stayed on screen, rounded to the millisecond and capped at 120
+seconds. It is one integer per impression, on the same row as the impression itself
+(D36) — no pointer positions, no scroll traces, no per-pixel heat map, and no
+measurement at all for users who decline. The aggregated value never leaves the
+scoring path: it adjusts a label by at most ±0.5 and is discarded by the retention
+job with the rest of `interaction_event` after 90 days.
+
 ## Consent model
 
 Two independent switches, both off-by-default in the sense that each requires an

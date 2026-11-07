@@ -152,7 +152,10 @@ Telemetry (opt-in, [08-privacy.md](08-privacy.md)) gives implicit labels:
 ### Attention is a correction, not a label
 
 Impressions optionally carry `dwell_ms` (separate opt-in; `None` when not
-measured or not consented). It never becomes a label of its own, because dwell
+measured or not consented). The client writes the impression when the card leaves
+the screen rather than when the page arrives (D36), so the row carries both the fact
+and the time — and only one row per item, because the denominator is what every rate
+below is divided by. It never becomes a label of its own, because dwell
 conflates reading, leaving a tab open and a slow network:
 
 ```text
