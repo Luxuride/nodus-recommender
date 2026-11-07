@@ -83,7 +83,6 @@ pub async fn posts(
         .iter()
         .map(|(score, candidate)| NewPostItem {
             status_id: candidate.status_id,
-            account_id: candidate.account_id,
             score: *score,
             reason: serde_json::to_value(reason_for()).unwrap_or_default(),
         })

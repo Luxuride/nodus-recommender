@@ -79,7 +79,7 @@ pub async fn candidates(
           AND af.expires_at > now()
           AND s.visibility IN ('public', 'unlisted')
           AND s.expires_at > now()
-          AND s.created_at > now() - make_interval(days => $3)
+          AND s.created_at > now() - ($3::int * interval '1 day')
           AND a.moved_to_account_id IS NULL
           AND NOT EXISTS (
               SELECT 1 FROM follow_edge fe
@@ -106,10 +106,13 @@ pub async fn candidates(
 }
 
 /// A scored post, ready to be minted as a `recommendation_item`.
+///
+/// The author is deliberately absent: `recommendation_item_target_matches_kind`
+/// requires a `post` item to point at the status alone, and the author is one join
+/// away through `status.account_id`.
 #[derive(Debug)]
 pub struct NewPostItem {
     pub status_id: i64,
-    pub account_id: i64,
     pub score: f64,
     pub reason: Value,
 }
@@ -130,7 +133,6 @@ pub async fn persist(
         return Ok(Vec::new());
     }
     let statuses = items.iter().map(|item| item.status_id).collect::<Vec<_>>();
-    let accounts = items.iter().map(|item| item.account_id).collect::<Vec<_>>();
     let scores = items.iter().map(|item| item.score).collect::<Vec<_>>();
     let reasons = items
         .iter()
@@ -140,10 +142,10 @@ pub async fn persist(
     sqlx::query_as::<_, (i64, i64)>(
         r"
         INSERT INTO recommendation_item
-            (user_id, feed_id, kind, status_id, account_id, score, reason, model_version)
-        SELECT $1, $2, 'post', s.status_id, s.account_id, s.score, s.reason, $3
-        FROM UNNEST($4::bigint[], $5::bigint[], $6::float8[], $7::jsonb[])
-            AS s(status_id, account_id, score, reason)
+            (user_id, feed_id, kind, status_id, score, reason, model_version)
+        SELECT $1, $2, 'post', s.status_id, s.score, s.reason, $3
+        FROM UNNEST($4::bigint[], $5::float8[], $6::jsonb[])
+            AS s(status_id, score, reason)
         RETURNING id, status_id
         ",
     )
@@ -151,7 +153,6 @@ pub async fn persist(
     .bind(feed_id)
     .bind(model_version)
     .bind(&statuses)
-    .bind(&accounts)
     .bind(&scores)
     .bind(&reasons)
     .fetch_all(pool)
@@ -202,7 +203,7 @@ pub async fn page(
             a.instance_host::text                                  AS instance_host
         FROM recommendation_item ri
         JOIN status s ON s.id = ri.status_id
-        JOIN account a ON a.id = ri.account_id
+        JOIN account a ON a.id = s.account_id
         WHERE ri.user_id = $1
           AND ri.feed_id = $2
           AND ri.kind = 'post'
