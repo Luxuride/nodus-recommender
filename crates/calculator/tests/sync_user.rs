@@ -152,8 +152,10 @@ async fn sync_user_walks_every_page_and_replaces_edges(pool: PgPool) {
     assert_eq!(follows.len(), 1, "edges are replaced, not merged");
 
     // And the follow-up recompute is queued for the tier allowed to take the lock.
+    // It is `recompute_similarity`, not a second kind: that pass writes both
+    // `user_similarity` and the `account_affinity` the feed reads.
     let queued: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM job WHERE kind = 'recompute_affinity' AND status = 'pending'",
+        "SELECT count(*) FROM job WHERE kind = 'recompute_similarity' AND status = 'pending'",
     )
     .fetch_one(&pool)
     .await

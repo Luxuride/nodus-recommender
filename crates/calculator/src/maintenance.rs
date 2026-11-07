@@ -15,19 +15,28 @@ use std::future::Future;
 use std::time::Duration;
 
 use nodus_store::jobs::{self, NewJob};
-use nodus_store::similarity;
+use nodus_store::{profiles, similarity};
 use sqlx::PgPool;
 use tracing::{debug, info, warn};
 
 /// Priorities, in the queue's own vocabulary (P0 is user-visible work).
 const RECOMPUTE_PRIORITY: i16 = 3;
 const MAINTENANCE_PRIORITY: i16 = 4;
+/// A profile crawl is cheap per account but competes with the user-visible crawl.
+const PROFILE_PRIORITY: i16 = 3;
 
 /// How many users one tick may reschedule.
 ///
 /// A tick is a producer, so a long list in one tick only means the queue grows
 /// faster than the workers drain it. Bounding it keeps the backlog meaningful.
 pub const USERS_PER_TICK: i64 = 200;
+
+/// How many account graphs one tick may hand to the crawler.
+///
+/// A profile page is one request, so this is the crawler's real rate limit: without it
+/// a queue with a large backlog would spend every token on strangers' graphs and
+/// starve the sync a user actually asked for.
+pub const PROFILES_PER_TICK: i64 = 25;
 
 /// What one tick enqueued.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -36,13 +45,15 @@ pub struct Report {
     pub housekeeping: bool,
     /// How many users were rescheduled.
     pub users: usize,
+    /// How many account graphs were handed to the crawler.
+    pub profiles: usize,
 }
 
 impl Report {
     /// Whether the tick had nothing to do.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        !self.housekeeping && self.users == 0
+        !self.housekeeping && self.users == 0 && self.profiles == 0
     }
 }
 
@@ -94,7 +105,22 @@ impl Maintenance {
             }
         }
 
-        debug!(users = report.users, "maintenance tick");
+        // Profile crawling is what makes a neighbour possible when the operator has
+        // only one synced account: similarity over users needs two of ours, similarity
+        // over profiles needs any account we can see.
+        for target in profiles::needing_graph(&self.pool, PROFILES_PER_TICK).await? {
+            let job = NewJob::pending(
+                "refresh_profile",
+                PROFILE_PRIORITY,
+                "account",
+                Some(target.id.to_string()),
+            );
+            if jobs::enqueue(&self.pool, &job).await?.is_some() {
+                report.profiles += 1;
+            }
+        }
+
+        debug!(users = report.users, profiles = report.profiles, "maintenance tick");
         Ok(report)
     }
 
@@ -104,7 +130,11 @@ impl Maintenance {
     async fn tick_and_log(&self) {
         match self.tick().await {
             Ok(report) if report.is_empty() => {}
-            Ok(report) => info!(users = report.users, "maintenance queued work"),
+            Ok(report) => info!(
+                users = report.users,
+                profiles = report.profiles,
+                "maintenance queued work"
+            ),
             Err(error) => warn!(%error, "maintenance tick failed"),
         }
     }

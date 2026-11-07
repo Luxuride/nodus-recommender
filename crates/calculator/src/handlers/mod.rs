@@ -26,12 +26,14 @@ use nodus_store::models::Job;
 mod recompute_follow_through;
 mod recompute_similarity;
 mod refresh_account;
+mod refresh_profile;
 mod retain;
 mod sync_user;
 
 pub use recompute_follow_through::RecomputeFollowThrough;
 pub use recompute_similarity::RecomputeSimilarity;
 pub use refresh_account::{RefreshAccount, RefreshConfig};
+pub use refresh_profile::RefreshProfile;
 pub use retain::Retain;
 pub use sync_user::{SyncConfig, SyncUser};
 
@@ -178,10 +180,11 @@ impl Registry {
         retention: nodus_store::retention::RetentionPolicy,
     ) -> Self {
         let mut registry = Self::new();
-        registry.register(Arc::new(SyncUser::new(pool.clone(), sync)));
+        registry.register(Arc::new(RefreshProfile::new(pool.clone(), sync.clone())));
         registry.register(Arc::new(RefreshAccount::new(pool.clone(), refresh)));
         registry.register(Arc::new(RecomputeSimilarity::new(pool.clone())));
         registry.register(Arc::new(RecomputeFollowThrough::new(pool.clone())));
+        registry.register(Arc::new(SyncUser::new(pool.clone(), sync)));
         registry.register(Arc::new(Retain::new(pool, retention)));
         registry
     }

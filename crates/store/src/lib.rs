@@ -34,6 +34,7 @@ pub mod feedback;
 pub mod follow_through;
 pub mod jobs;
 pub mod models;
+pub mod profiles;
 pub mod reference;
 pub mod retention;
 pub mod similarity;
