@@ -38,6 +38,7 @@ pub mod reference;
 pub mod retention;
 pub mod similarity;
 pub mod statuses;
+pub mod sync_auth;
 pub mod two_hop;
 pub mod users;
 

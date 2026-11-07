@@ -55,6 +55,14 @@ pub fn router(state: AppState) -> Router {
             axum::routing::get(sync::get_me).delete(sync::delete_me),
         )
         .route(
+            "/api/v1/sync/authorize",
+            axum::routing::post(sync::start_sync_authorization),
+        )
+        .route(
+            "/api/v1/sync/callback",
+            axum::routing::get(sync::sync_callback),
+        )
+        .route(
             "/api/v1/sync/token",
             axum::routing::put(sync::put_sync_token).delete(sync::delete_sync_token),
         )
