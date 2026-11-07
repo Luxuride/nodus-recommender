@@ -32,6 +32,7 @@ use self::params::{DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT, contract_gate, degraded_
 use self::ranking::{is_fresh_rejection, reason_for, score};
 use self::response::{envelope, feed_account, snapshot_item};
 
+mod page;
 mod params;
 mod ranking;
 mod response;
@@ -97,19 +98,28 @@ pub async fn accounts(
         // covers both, so scores and ordering keep the same shape either way.
         candidates = feed::popular_candidates(&state.pool, user.id, limit + 1).await?;
     }
-    let (candidates, more) = split(candidates, limit);
+    // The page is planned before ranking because exploration is about positions,
+    // not scores: the head is whatever the ranking says is best, and the explore
+    // slots come from a rank window below it (D26 needs them to keep producing
+    // evidence about accounts the ranking has given up on).
+    let feed_id = Uuid::now_v7();
+    let plan = page::plan(
+        candidates.len(),
+        usize::try_from(limit).unwrap_or(0),
+        seed_of(feed_id),
+    );
+    let more = plan.more;
     let weights = RankingWeights::default();
-    let ranked = candidates
+    let ranked = page::select(&candidates, &plan)
         .into_iter()
         .map(|candidate| {
             (
-                score(&candidate, weights, &user.instance_host, now),
-                candidate,
+                score(candidate, weights, &user.instance_host, now),
+                candidate.clone(),
             )
         })
         .collect::<Vec<_>>();
 
-    let feed_id = Uuid::now_v7();
     let new_items = ranked
         .iter()
         .map(|(value, candidate)| NewItem {
@@ -163,4 +173,17 @@ fn without_fresh_rejections(candidates: Vec<Candidate>, now: OffsetDateTime) -> 
         .into_iter()
         .filter(|candidate| !is_fresh_rejection(candidate, now))
         .collect()
+}
+
+/// The low half of a feed's identity, used as the exploration seed.
+///
+/// The subtlety worth stating: a `UUIDv7` begins with a millisecond timestamp, so the
+/// first eight bytes differ per snapshot and *are* deterministic within one. That is
+/// exactly the property wanted — two replicas serving the same snapshot pick the same
+/// explore slots, while a refresh explores differently.
+fn seed_of(feed_id: Uuid) -> u64 {
+    let bytes = feed_id.as_bytes();
+    let mut seed = [0_u8; 8];
+    seed.copy_from_slice(&bytes[..8]);
+    u64::from_be_bytes(seed)
 }
