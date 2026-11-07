@@ -46,6 +46,16 @@ side-by-side eval. This is the first milestone that can prove or kill the idea.
 
 Risks retired: whether the similarity signal is worth anything at this scale.
 
+Built so far (2026-11-07): IDF weights, similarity and affinity producers with
+`audience_weight` refresh, candidate query with the cold-start popular rung,
+`/api/v1/feed/accounts` with reasons and a base64 keyset cursor, `POST
+/api/v1/events`, `POST /api/v1/feedback/not-interested`, the decaying-penalty
+scorer with shrinkage and dwell correction (D26–D28), the deterministic explore
+channel in the first page (D26), the public shared-post page with unfurl tags, the
+container image, the k8s manifests and `scripts/smoke.sh`. Still missing for the
+exit: the `refresh_account` post path, the evaluation harness that would fill in
+`05-similarity.md`, and ten real users.
+
 ## M3 — Client parity (read + engage)
 
 Scope: `web` — PKCE sign-in, home/local/federated timelines with streaming,

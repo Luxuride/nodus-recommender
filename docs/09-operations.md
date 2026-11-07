@@ -67,10 +67,18 @@ Without step 3 the stack is still usable — it just keeps serving the cold-star
 rung, which is the documented behaviour of `request_scoped` mode in
 `04-ingestion.md`.
 
-Tests: `cargo test --workspace` in `contract` and `recommender`; `trunk build
+Tests: `cargo test --workspace` in `sdk` and `recommender`; `trunk build
 --release` plus the Playwright suite in `web`. Integration tests that need the
 database use `sqlx::test` against the compose Postgres, with one database per
 test.
+
+End to end: `cd recommender && cargo build --bins && bash scripts/smoke.sh` starts
+both binaries against the compose Postgres, walks `/healthz`, `/readyz`,
+`/api/v1/meta`, the feed's four failure modes (no headers, old contract, unknown
+host, malformed events), the shared-link page, then queues one `sync_user` job and
+waits for the calculator to claim and fail it the way its handler says it should.
+It is a wiring check, not a test suite: it proves startup, real SQL, the job loop
+and shutdown survive together, which `cargo test` cannot.
 
 ## Configuration
 
