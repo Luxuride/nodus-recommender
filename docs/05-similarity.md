@@ -40,11 +40,35 @@ co_fav(u,v)     = Σ_{s ∈ L(u) ∩ L(v)} w_status(s)   / sqrt( Σ_{s∈L(u)} w
 co_reply(u,v)   = Σ_{a ∈ R(u) ∩ R(v)} w_target(a)   / sqrt( Σ_{a∈R(u)} w_target(a) · Σ_{b∈R(v)} w_target(b) )
 reciprocity(u,v)= 1 if u and v follow each other else 0
 
-similarity(u,v) = 0.60·co_follow + 0.25·co_fav + 0.10·co_reply + 0.05·reciprocity
+similarity(u,v) = ( Σ_c w_c·component_c ) / ( Σ_c w_c over measurable components )
+
+w_co_follow = 0.55   w_co_boost = 0.15   w_co_fav = 0.10   w_co_reply = 0.10   w_reciprocity = 0.05
 ```
 
-This is cosine similarity over IDF-weighted sets, so it is bounded to `[0,1]` and
-comparable across users.
+This is cosine similarity over IDF-weighted sets, so each component is bounded to
+`[0,1]`.
+
+**Renormalisation, and why it is not optional.** Not every component is measurable
+for every kind of neighbour, and the two kinds differ:
+
+| Component | Our own users | Non-user "reference" neighbours |
+| --- | --- | --- |
+| `co_follow` | yes | yes |
+| `co_boost` | yes | yes (a boost is a published status) |
+| `co_fav` | yes, if the user opted in to sync | **never** — `GET /api/v1/favourites` only answers for the caller |
+| `co_reply` | yes | yes, when their replies are public |
+| `reciprocity` | yes | no |
+
+A reference's maximum reachable score is therefore ~0.90 while a user's is 1.0, so
+dividing by the *full* weight sum would systematically under-score references and
+the top-50 cut would prefer user neighbours for a measurement artefact. The
+denominator is the weight sum of the components that were measurable for that pair.
+The pruning threshold applies to the renormalised value.
+
+`co_boost` exists for the same reason: an endorsement published as a status is
+crawlable for anybody, so it restores some engagement signal exactly where
+favourites are unavailable. It also keeps `co_fav` from carrying a quarter of the
+weight on data that only opted-in users provide.
 
 **Pruning.** Store `similarity ≥ 0.05`, keep the **top 50** per user.
 `signals` jsonb records the raw overlap counts and a few sample account ids, which
