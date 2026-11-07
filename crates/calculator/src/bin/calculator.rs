@@ -106,9 +106,15 @@ async fn main() -> ExitCode {
         // per-host budgets are per replica.
         sync
     };
+    // Retention windows come from configuration, so shortening one is a deploy,
+    // not a code change; the handler reads them at construction and never again.
+    let retention = nodus_store::retention::RetentionPolicy {
+        post_days: u32::from(config.post_retention_days),
+        event_days: u32::from(config.event_retention_days),
+    };
     let worker = Worker::new(
         pool.clone(),
-        Registry::standard(pool.clone(), sync, refresh),
+        Registry::standard(pool.clone(), sync, refresh, retention),
         config,
     );
 
@@ -152,14 +158,25 @@ async fn main() -> ExitCode {
 const MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 async fn shutdown_signal() {
+    // A handler that cannot be installed is a degraded shutdown, not a reason to
+    // abort: the other signal still works, and the future that failed simply never
+    // resolves so `select!` keeps waiting on the one that did.
     let ctrl_c = async {
-        signal::ctrl_c().await.expect("ctrl-c handler");
+        if let Err(error) = signal::ctrl_c().await {
+            error!(%error, "cannot listen for SIGINT");
+            std::future::pending::<()>().await;
+        }
     };
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("SIGTERM handler")
-            .recv()
-            .await;
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(error) => {
+                error!(%error, "cannot listen for SIGTERM");
+                std::future::pending::<()>().await;
+            }
+        }
     };
     tokio::select! {
         () = ctrl_c => info!("SIGINT"),

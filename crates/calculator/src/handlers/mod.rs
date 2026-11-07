@@ -26,11 +26,13 @@ use nodus_store::models::Job;
 mod recompute_follow_through;
 mod recompute_similarity;
 mod refresh_account;
+mod retain;
 mod sync_user;
 
 pub use recompute_follow_through::RecomputeFollowThrough;
 pub use recompute_similarity::RecomputeSimilarity;
 pub use refresh_account::{RefreshAccount, RefreshConfig};
+pub use retain::Retain;
 pub use sync_user::{SyncConfig, SyncUser};
 
 /// The outcome of one attempt, when it is not success.
@@ -169,12 +171,18 @@ impl Registry {
     /// being retried forever or, worse, completed without doing anything — which is
     /// what lets the roadmap claim "the queue serves these kinds" honestly.
     #[must_use]
-    pub fn standard(pool: sqlx::PgPool, sync: SyncConfig, refresh: RefreshConfig) -> Self {
+    pub fn standard(
+        pool: sqlx::PgPool,
+        sync: SyncConfig,
+        refresh: RefreshConfig,
+        retention: nodus_store::retention::RetentionPolicy,
+    ) -> Self {
         let mut registry = Self::new();
         registry.register(Arc::new(SyncUser::new(pool.clone(), sync)));
         registry.register(Arc::new(RefreshAccount::new(pool.clone(), refresh)));
         registry.register(Arc::new(RecomputeSimilarity::new(pool.clone())));
-        registry.register(Arc::new(RecomputeFollowThrough::new(pool)));
+        registry.register(Arc::new(RecomputeFollowThrough::new(pool.clone())));
+        registry.register(Arc::new(Retain::new(pool, retention)));
         registry
     }
 
