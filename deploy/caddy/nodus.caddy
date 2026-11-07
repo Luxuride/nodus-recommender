@@ -13,6 +13,14 @@ nodus.luxuride.eu {
 		reverse_proxy 10.0.1.18:3000
 	}
 
+	# The shared-post landing page: server-rendered HTML with Open Graph tags, so a
+	# chat client that fetches the URL gets a card without running wasm (D8). It is the
+	# API role's route, not the client's, and it must be matched before the static
+	# fallback or every shared link would answer with the app shell.
+	handle /s/* {
+		reverse_proxy 10.0.1.18:3000
+	}
+
 	handle /healthz {
 		reverse_proxy 10.0.1.18:3000
 	}
