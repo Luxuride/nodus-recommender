@@ -37,6 +37,13 @@ pub struct Config {
     pub verify_cache_seconds: u64,
     /// Maximum number of verified tokens the local cache holds per replica.
     pub verify_cache_capacity: usize,
+    /// How long a shared post's preview metadata stays cached.
+    ///
+    /// A shared link is fetched by chat clients and crawlers, not by us, so the
+    /// cache is what stops one popular post from turning into an unbounded number
+    /// of instance requests. A day is longer than the preview is interesting and
+    /// shorter than the post is.
+    pub og_cache_seconds: u64,
     /// How long to wait for Postgres on the first connection before giving up.
     pub connect_timeout: Duration,
     /// Key used to encrypt stored instance tokens. Absent when sync is disabled, so a
@@ -103,6 +110,7 @@ impl Config {
         let redis_url = optional("REDIS_URL");
         let verify_cache_seconds = parse("VERIFY_CACHE_SECONDS", 600_u64)?;
         let verify_cache_capacity = parse("VERIFY_CACHE_CAPACITY", 10_000_usize)?;
+        let og_cache_seconds = parse("OG_CACHE_SECONDS", 86_400_u64)?;
         let token_enc_key = match optional("TOKEN_ENC_KEY") {
             Some(raw) => {
                 Some(
@@ -126,6 +134,7 @@ impl Config {
             redis_url,
             verify_cache_seconds,
             verify_cache_capacity,
+            og_cache_seconds,
             connect_timeout: Duration::from_secs(10),
             token_enc_key,
         })

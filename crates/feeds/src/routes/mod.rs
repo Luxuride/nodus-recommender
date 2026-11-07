@@ -10,6 +10,7 @@ pub mod feed;
 pub mod feedback;
 pub mod health;
 pub mod meta;
+pub mod share;
 pub mod sync;
 
 use crate::state::AppState;
@@ -29,6 +30,10 @@ pub fn router(state: AppState) -> Router {
         .route("/healthz", axum::routing::get(health::healthz))
         .route("/readyz", axum::routing::get(health::readyz))
         .route("/api/v1/meta", axum::routing::get(meta::meta))
+        .route(
+            "/s/{instance}/{status}",
+            axum::routing::get(share::short_link),
+        )
         .route("/api/v1/feed/accounts", axum::routing::get(feed::accounts))
         .route("/api/v1/events", axum::routing::post(events::collect))
         .route(

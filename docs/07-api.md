@@ -335,3 +335,28 @@ No `Access-Control-Allow-Credentials` (there are no cookies), no wildcard, and
   single-instance in-memory counter until we run more than one).
 - The API never returns scores, weights, or other users' private data. `reason`
   is the deliberate, limited exception, capped at 3 sample handles.
+
+## Shared post links
+
+Outside `/api/v1`, one route exists for people rather than for the client:
+
+```
+GET /s/{instance}/{status_id}
+```
+
+It answers with an HTML page, not JSON: the post's metadata as `og:`/`twitter:`
+tags for chat clients and crawlers (which never run wasm), plus a readable copy of
+the post for humans and links to the original instance and to the app. Nothing on
+the page requires a token or a session, and it carries no script.
+
+Requests to the instance are unauthenticated, so only public and unlisted posts can
+be unfurled. The page renders an identical "post unavailable" document for a
+private, deleted or unreachable post — the difference would tell a stranger whether
+a post exists. Responses are `Cache-Control: public, max-age=300`, and the reduced
+metadata is cached under `og:v1:{host}:{id}` for `OG_CACHE_SECONDS` (default a day),
+with failures remembered for five minutes.
+
+The path segment check is deliberately strict: `{instance}` must look like a host
+(alphanumeric, dots, dashes; no scheme, path, port or userinfo) and `{status_id}`
+must be digits. The host ends up in an outbound URL, so anything else would let a
+stranger re-target the request.

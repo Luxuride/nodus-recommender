@@ -100,6 +100,7 @@ with the offending key named.
 | `CALCULATOR_REPLICAS` | no | `1` | declares how many replicas run; without Redis it is the guard that keeps per-host budgets honest |
 | `FEED_CACHE_SECONDS` | no | `60` | Redis TTL for a rendered feed page |
 | `VERIFY_CACHE_SECONDS` | no | `600` | token verification TTL |
+| `OG_CACHE_SECONDS` | no | `86400` | how long a shared post's preview metadata stays cached (failures are remembered for 300 s) |
 
 `readyz` reports whether the required keys are present (never their values).
 

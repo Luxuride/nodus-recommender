@@ -26,6 +26,13 @@ pub struct AppState {
     /// per-process cache stays correct when it misses, but a shared one (Redis) saves
     /// the instance round trip for every replica instead of only for one.
     pub identities: Arc<dyn VerificationCache>,
+    /// The shared cache itself, for the things that are not token verifications:
+    /// today only the unfurl records behind a shared post's preview.
+    ///
+    /// Handed out as the trait object rather than a typed wrapper because a miss is
+    /// always handled by doing the real work, so there is nothing for a wrapper to
+    /// guarantee.
+    pub cache: Arc<dyn Cache>,
 }
 
 impl AppState {
@@ -44,7 +51,7 @@ impl AppState {
             .build()
             .expect("HTTP client builds");
         let identities = SharedIdentityCache::new(
-            shared,
+            Arc::clone(&shared),
             Duration::from_secs(config.verify_cache_seconds),
             config.verify_cache_capacity,
         );
@@ -54,6 +61,7 @@ impl AppState {
             started_at: Instant::now(),
             http,
             identities: Arc::new(identities),
+            cache: shared,
         }
     }
 

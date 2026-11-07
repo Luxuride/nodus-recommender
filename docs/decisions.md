@@ -15,7 +15,7 @@ documents can cite them (`D4`).
 | D5 | **Leptos, not Yew** | fine-grained signals suit feed virtualization better than VDOM diffing; `view!` is close enough to JSX for anyone who knows React; 0.8 is stable and CSR-friendly | a hostile 0.9 migration, or a11y/ecosystem gaps we cannot close |
 | D6 | **Full client, not just a Feed tab** | a Feed tab bolted onto Mastodon's web UI would require forking Mastodon or a browser extension; a client is the only honest delivery vehicle | the pilot shows nobody switches clients — then the Feed becomes an embedded surface again |
 | D7 | **No partitioning in v1** | 8M `follow_edge` rows and 10M events fit comfortably; partitioning adds operational cost before it buys anything | `interaction_event` > 50M rows, or vacuum pressure on `status` |
-| D8 | **CSR, no SSR** | every meaningful render needs the browser's token; SSR would render shells and add a server to the critical path | we add an unauthenticated public surface (e.g. a landing page worth SEO) — then only that route prerenders |
+| D8 | **CSR, no SSR — except the shared-post page** | every signed-in render needs the browser's token, so SSR would render shells and put a server on the critical path for nothing. The one unauthenticated surface is a shared post link, and a chat client that fetches a URL never runs wasm: `/s/{instance}/{status}` is rendered as static HTML (meta tags plus the post text, no script) and cached. That is a landing page, not a second rendering path for the app | a public surface that needs interactivity — then only that route grows a hydration boundary; the app stays CSR |
 | D9 | **Postgres job queue, no broker** | one dependency fewer; `FOR UPDATE SKIP LOCKED` is enough at 1 req/s per host; the claim query is 15 lines | job volume > 100/min, or we need fan-out across many workers |
 | D10 | **Separate `sdk` repository** | two deployables on two cadences need a versioned wire contract and a CI that compiles both against a candidate commit; shared DTOs are the whole point of doing this in Rust | the contract stabilises so much that a monorepo's atomic changes win — unlikely while both sides ship |
 | D11 | **Self-imposed 50% rate-limit budget** | politeness is the constraint that keeps us from being blocked, and 429 storms are worse than slow sync | never; raise throughput by adding users, not by spending more of the quota |
@@ -64,6 +64,38 @@ exists specifically to make the cost visible early.
 first push, which is the cheapest possible moment: no downstream consumer existed,
 GitHub keeps redirects from the old names, and the git histories were preserved.
 The lesson is to check naming constraints before publishing, not after.
+
+## Notes
+
+### Why the shared-post page is rendered by the API role (D8 in detail)
+
+A link pasted into a chat client is fetched once by a crawler that executes no
+JavaScript, so the only way for a post to unfurl is for the URL to answer with
+real HTML containing the tags. Two ways to get that without giving up CSR:
+
+1. **Prerender the whole client** — that is what D8 rejected: a Node or Leptos SSR
+server on the critical path, rendering components whose data requires a token it
+does not have.
+2. **Render one page, without JavaScript** — what we do. `/s/{instance}/{status}`
+   asks the instance for the public status (unauthenticated, so the instance's own
+   visibility rules apply), reduces it to title, text, image and canonical URL, and
+   emits a small document with `og:`/`twitter:` tags and a readable copy of the
+   post. No script, no hydration, no bundle.
+
+The page is cached under `og:v1:{host}:{id}` for `OG_CACHE_SECONDS` (a day), with
+failures remembered for five minutes under the same key. A post shared into a busy
+channel therefore costs one instance request per day instead of one per preview,
+and a link to a followers-only post costs one 404 per five minutes. Cache is
+`Cache-Control: public, max-age=300`, so the page can also sit behind a CDN.
+
+Two properties are deliberate and worth keeping:
+
+* the page says nothing about *why* a post is unavailable — private, deleted and
+  unreachable are the same page, because the difference tells a stranger whether a
+  post exists;
+* a non-public `visibility` is refused even though an unauthenticated request
+  should never return one: the check exists so a misconfigured instance cannot make
+  our page publish a followers-only post.
 
 ## Superseded
 
