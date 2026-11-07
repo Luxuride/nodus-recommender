@@ -1297,6 +1297,21 @@ name = "nodus-core"
 version = "0.1.0"
 
 [[package]]
+name = "nodus-eval"
+version = "0.1.0"
+dependencies = [
+ "nodus-core",
+ "nodus-store",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "nodus-feeds"
 version = "0.1.0"
 dependencies = [
