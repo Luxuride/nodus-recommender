@@ -26,13 +26,22 @@ score(u,c) =  w_sim      · affinity[u,c] · taste_factor(u,c) · popularity_lif
             − w_penalty  · penalty(u,c)                  -- decaying, shrunk by evidence, 0..1
 ```
 
-`penalty` is not a flag. A rejection is stored as `(strength, recorded_at)` and
-read back as `strength · 0.5^(age / half_life)`, halving every **7 days** for a
-`dismiss` and **30 days** for a `not_interested`, then scaled by
-`n / (n + 3)` where `n` is the impressions this user has had of that account — so
-one impression cannot bury anybody. Nothing runs to expire it, and no account is
+`penalty` is not a flag. A rejection is stored as a strength — `3` for a `dismiss`,
+`5` for a `not_interested` — and read back as `strength · 0.5^(age / half_life)`,
+halving every **7 days** for a `dismiss` and **30 days** for a
+`not_interested`, then scaled by `n / (n + 3)` where `n` is the impressions this
+user has had of that account, and finally divided by the strength of a fully
+observed rejection (`5`). So `1.0` is not "was rejected": it is "was rejected and
+we have seen this user look at the account enough times to mean it". One impression
+gives `0.25`; twenty-five give `0.89`. Nothing runs to expire it, and no account is
 excluded forever: the explore channel keeps sampling accounts whose penalty is
 decaying, which is what gives later positive evidence a chance to outvote it.
+
+Because of that shrinkage, the *instruction* is honoured by a separate rule rather
+than by the score: a fresh `not_interested` (younger than 30 days) is skipped in the
+candidate path, while everything older is left to the penalty. Otherwise "not
+interested" would either hide an account forever or be outvoted by a good affinity
+score the day after the user said no.
 
 `taste_factor` is `1 − w_taste · (1 − exp(−follow_age_days / 180))`: taste decays
 with a 180-day constant, and `w_taste` decides how much of that decay survives into
