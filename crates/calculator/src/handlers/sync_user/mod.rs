@@ -143,12 +143,14 @@ impl SyncUser {
                         "sync_user finished"
                     );
 
-                    // Similarity and affinity are a whole-graph question; hand it to
-                    // the tier that is allowed to take the recompute lock.
+                    // Similarity and affinity are a whole-graph question, and the same
+                    // pass writes both (`account_affinity` is where the neighbours'
+                    // follows land), so this enqueues the tier that owns the recompute
+                    // lock rather than a second kind nobody handles.
                     jobs::enqueue(
                         &self.pool,
                         &jobs::NewJob::pending(
-                            "recompute_affinity",
+                            "recompute_similarity",
                             3,
                             "user",
                             Some(user_id.to_string()),
