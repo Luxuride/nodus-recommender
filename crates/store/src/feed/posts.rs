@@ -167,7 +167,7 @@ pub async fn fallback_candidates(
           AND s.created_at > now() - ($3::int * interval '1 day')
           AND a.moved_to_account_id IS NULL
           AND a.discoverable IS DISTINCT FROM false
-          AND a.followers_count < 50_000
+          AND a.followers_count < 50000
           AND a.id <> me.account_id
           AND NOT EXISTS (
               SELECT 1
@@ -423,7 +423,7 @@ pub async fn recent_candidates(
           AND s.created_at > now() - interval '7 days'
           AND a.moved_to_account_id IS NULL
           AND a.discoverable IS DISTINCT FROM false
-          AND a.followers_count < 50_000
+          AND a.followers_count < 50000
           AND a.id <> me.account_id
           AND NOT EXISTS (
               SELECT 1 FROM follow_edge fe
@@ -591,7 +591,7 @@ pub async fn trending_candidates(
           AND s.favourites_count + 2 * s.reblogs_count > 0
           AND a.moved_to_account_id IS NULL
           AND a.discoverable IS DISTINCT FROM false
-          AND a.followers_count < 50_000
+          AND a.followers_count < 50000
           AND a.id <> me.account_id
           AND NOT EXISTS (
               SELECT 1 FROM follow_edge fe
@@ -632,10 +632,12 @@ pub async fn personal_candidates(
     sqlx::query_as::<_, PostCandidate>(
         r"
         WITH me AS (
-            SELECT account_id
+            SELECT account.id AS account_id
             FROM app_user
-            WHERE id = $1
-              AND account_id IS NOT NULL
+            JOIN account
+              ON account.instance_host = app_user.instance_host
+             AND account.mastodon_id = app_user.mastodon_account_id
+            WHERE app_user.id = $1
         ),
         followed AS (
             SELECT followee_id AS account_id
@@ -743,9 +745,12 @@ pub async fn interest_texts(
     sqlx::query_scalar::<_, String>(
         r"
         WITH me AS (
-            SELECT account_id
+            SELECT account.id AS account_id
             FROM app_user
-            WHERE id = $1 AND account_id IS NOT NULL
+            JOIN account
+              ON account.instance_host = app_user.instance_host
+             AND account.mastodon_id = app_user.mastodon_account_id
+            WHERE app_user.id = $1
         ),
         acted AS (
             SELECT status.content
