@@ -75,7 +75,20 @@ pub async fn posts(
     let model_version = feed::active_model_version(&state.pool).await?;
     let feed_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
-    let candidates = feed::posts::candidates(&state.pool, user.id, limit + 1).await?;
+    let mut candidates = feed::posts::candidates(&state.pool, user.id, limit + 1)
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, "post candidates");
+            error
+        })?;
+    if candidates.is_empty() {
+        candidates = feed::posts::fallback_candidates(&state.pool, user.id, limit + 1)
+            .await
+            .map_err(|error| {
+                tracing::error!(?error, "fallback post candidates");
+                error
+            })?;
+    }
     let keep = usize::try_from(limit).unwrap_or(0);
     let (ranked, more) = rank(candidates, now, keep);
 
@@ -151,7 +164,7 @@ fn rank(
             );
             (score, candidate)
         })
-        .filter(|(score, _)| score.is_finite() && *score > 0.0)
+        .filter(|(score, _)| score.is_finite() && *score > f64::from(f32::MIN_POSITIVE))
         .collect::<Vec<_>>();
     ranked.sort_by(|a, b| {
         b.0.total_cmp(&a.0)

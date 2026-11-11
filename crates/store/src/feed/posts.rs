@@ -105,6 +105,69 @@ pub async fn candidates(
     .await
 }
 
+/// Posts to show when nobody has an affinity row yet.
+///
+/// A one-user instance has no peer to be similar to, so the personal pool is
+/// legitimately empty.  The fallback keeps the feed useful: it takes the most
+/// followed authors' recent posts, including authors the reader already follows.
+/// That duplication of the home timeline is the honest price of a cold start.
+pub async fn fallback_candidates(
+    pool: &PgPool,
+    user_id: Uuid,
+    limit: i64,
+) -> Result<Vec<PostCandidate>, sqlx::Error> {
+    sqlx::query_as::<_, PostCandidate>(
+        r"
+        WITH me AS (
+            SELECT a.id AS account_id
+            FROM app_user u
+            JOIN account a
+              ON a.instance_host = u.instance_host
+             AND a.mastodon_id = u.mastodon_account_id
+            WHERE u.id = $1
+        )
+        SELECT
+            s.id                                                   AS status_id,
+            s.account_id                                           AS account_id,
+            0.5::double precision                                  AS affinity,
+            coalesce(s.content, '')                                AS content,
+            s.favourites_count,
+            s.reblogs_count,
+            s.replies_count,
+            s.created_at                                           AS published_at,
+            s.in_reply_to_id IS NOT NULL                           AS is_reply,
+            a.acct::text                                           AS account_acct,
+            a.display_name                                         AS account_display_name,
+            a.avatar_url                                           AS account_avatar_url,
+            a.followers_count                                      AS account_followers_count,
+            a.instance_host::text                                  AS instance_host
+        FROM status s
+        JOIN account a ON a.id = s.account_id
+        JOIN me ON true
+        WHERE s.visibility IN ('public', 'unlisted')
+          AND s.expires_at > now()
+          AND s.created_at > now() - ($3::int * interval '1 day')
+          AND a.moved_to_account_id IS NULL
+          AND a.id <> me.account_id
+          AND NOT EXISTS (
+              SELECT 1
+              FROM interaction_event e
+              JOIN recommendation_item ri ON ri.id = e.item_id
+              WHERE e.user_id = $1
+                AND ri.account_id = a.id
+                AND e.kind IN ('dismiss', 'not_interested')
+          )
+        ORDER BY a.followers_count DESC, s.created_at DESC
+        LIMIT $2
+        ",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .bind(30_i32)
+    .fetch_all(pool)
+    .await
+}
+
 /// A scored post, ready to be minted as a `recommendation_item`.
 ///
 /// The author is deliberately absent: `recommendation_item_target_matches_kind`

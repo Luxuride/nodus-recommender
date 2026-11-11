@@ -247,3 +247,28 @@ async fn a_snapshot_belongs_to_one_user(pool: PgPool) {
         "a feed id from another user's snapshot yields nothing"
     );
 }
+
+
+#[sqlx::test(migrations = "./migrations")]
+async fn followed_posts_fill_an_empty_affinity_pool(pool: PgPool) {
+    let (user_id, me) = seed_me(&pool).await;
+    let carol = candidate_author(&pool, user_id, 12, "carol", 0.9, false).await;
+    let followed = post(&pool, 500, carol, "public", Duration::hours(1)).await;
+    accounts::replace_follows(&pool, me, &[carol], "server_sync")
+        .await
+        .expect("record the follow edge");
+
+    assert!(
+        posts::candidates(&pool, user_id, 10)
+            .await
+            .expect("read the personal pool")
+            .is_empty(),
+        "a followed author is not a personal candidate"
+    );
+    let fallback = posts::fallback_candidates(&pool, user_id, 10)
+        .await
+        .expect("read the cold-start pool");
+    let ids: Vec<i64> = fallback.iter().map(|row| row.status_id).collect();
+    assert_eq!(ids, vec![followed]);
+    assert!((fallback[0].affinity - 0.5).abs() < f64::EPSILON);
+}
