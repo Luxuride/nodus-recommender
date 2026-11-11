@@ -45,7 +45,7 @@ pub async fn put_sync_token(
             ApiError::Internal(crate::error::anyhow_detail::Detail(error.to_string()))
         })?;
     let token_fingerprint = fingerprint(caller.credentials.token.expose());
-    let scopes: Vec<String> = Vec::new();
+    let scopes = vec![SYNC_SCOPE.to_owned()];
     let stored = nodus_store::users::set_sync_token(
         &state.pool,
         caller.user.id,

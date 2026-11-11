@@ -38,7 +38,7 @@ pub async fn upsert_many(pool: &PgPool, accounts: &[NewAccount]) -> Result<u64, 
     let result = sqlx::query(
         "INSERT INTO account (instance_host, mastodon_id, acct, display_name, followers_count, \
              bot, locked, last_fetched_at) \
-         SELECT host, mastodon_id, acct, display_name, followers_count, bot, locked, now() \
+         SELECT host, mastodon_id, acct, display_name, followers_count, bot, locked, NULL \
          FROM UNNEST($1::text[], $2::bigint[], $3::text[], $4::text[], $5::int[], \
                      $6::bool[], $7::bool[]) \
              AS page (host, mastodon_id, acct, display_name, followers_count, bot, locked) \
@@ -48,7 +48,6 @@ pub async fn upsert_many(pool: &PgPool, accounts: &[NewAccount]) -> Result<u64, 
              followers_count = EXCLUDED.followers_count, \
              bot = EXCLUDED.bot, \
              locked = EXCLUDED.locked, \
-             last_fetched_at = now(), \
              updated_at = now()",
     )
     .bind(&hosts)
@@ -137,6 +136,31 @@ pub async fn replace_follows(
     };
     tx.commit().await?;
     Ok(inserted)
+}
+
+/// Accounts whose recent posts are due for a refresh.
+///
+/// Only accounts someone follows, or that earned affinity, are worth spending a
+/// request on. `last_fetched_at` is stamped by the status fetch, not by the follow
+/// graph write, so a newly discovered author is due immediately.
+///
+/// # Errors
+///
+/// Propagates [`sqlx::Error`].
+pub async fn needing_status_refresh(pool: &PgPool, limit: i64) -> Result<Vec<i64>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT a.id \
+           FROM account a \
+          WHERE (a.last_fetched_at IS NULL OR a.last_fetched_at < now() - interval '7 days') \
+            AND a.moved_to_account_id IS NULL \
+            AND (EXISTS (SELECT 1 FROM follow_edge f WHERE f.followee_id = a.id) \
+                 OR EXISTS (SELECT 1 FROM account_affinity aa WHERE aa.account_id = a.id)) \
+          ORDER BY a.last_fetched_at NULLS FIRST, a.followers_count DESC, a.id \
+          LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
 
 /// The accounts an account follows, as local ids.

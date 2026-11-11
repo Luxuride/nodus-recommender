@@ -99,6 +99,26 @@ async fn a_tick_reschedules_users_whose_graph_moved(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../store/migrations")]
+async fn a_tick_queues_the_statuses_of_followed_authors(pool: PgPool) {
+    let (_user_id, me) = seed_user(&pool, "local.test", 1, "me").await;
+    let friend = seed_account(&pool, "remote.test", 100, "friend").await;
+    accounts::replace_follows(&pool, me, &[friend], "server_sync")
+        .await
+        .expect("edges");
+
+    let report = Maintenance::new(pool.clone()).tick().await.expect("tick");
+
+    assert_eq!(report.statuses, 1, "the followed author is due");
+    let subject: Option<String> = sqlx::query_scalar(
+        "SELECT subject_id FROM job WHERE kind = 'refresh_account' AND status = 'pending'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("job row");
+    assert_eq!(subject.as_deref(), Some(friend.to_string().as_str()));
+}
+
+#[sqlx::test(migrations = "../store/migrations")]
 async fn a_second_tick_does_not_duplicate_the_queue(pool: PgPool) {
     let (_user_id, me) = seed_user(&pool, "local.test", 1, "me").await;
     let friend = seed_account(&pool, "remote.test", 100, "friend").await;

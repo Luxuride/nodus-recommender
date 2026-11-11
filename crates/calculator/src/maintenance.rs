@@ -15,7 +15,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use nodus_store::jobs::{self, NewJob};
-use nodus_store::{profiles, similarity};
+use nodus_store::{accounts, profiles, similarity};
 use sqlx::PgPool;
 use tracing::{debug, info, warn};
 
@@ -38,6 +38,14 @@ pub const USERS_PER_TICK: i64 = 200;
 /// starve the sync a user actually asked for.
 pub const PROFILES_PER_TICK: i64 = 25;
 
+/// How many authors one tick may ask the status crawler to refresh.
+///
+/// A refresh walks up to three pages, so this is deliberately smaller than the profile
+/// sweep. The queue deduplicates outstanding work, and each account is due again only
+/// after the seven-day status TTL.
+pub const STATUS_ACCOUNTS_PER_TICK: i64 = 50;
+const STATUS_PRIORITY: i16 = 2;
+
 /// What one tick enqueued.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Report {
@@ -47,13 +55,15 @@ pub struct Report {
     pub users: usize,
     /// How many account graphs were handed to the crawler.
     pub profiles: usize,
+    /// How many authors' status pages were handed to the crawler.
+    pub statuses: usize,
 }
 
 impl Report {
     /// Whether the tick had nothing to do.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        !self.housekeeping && self.users == 0 && self.profiles == 0
+        !self.housekeeping && self.users == 0 && self.profiles == 0 && self.statuses == 0
     }
 }
 
@@ -120,7 +130,26 @@ impl Maintenance {
             }
         }
 
-        debug!(users = report.users, profiles = report.profiles, "maintenance tick");
+        for account_id in
+            accounts::needing_status_refresh(&self.pool, STATUS_ACCOUNTS_PER_TICK).await?
+        {
+            let job = NewJob::pending(
+                "refresh_account",
+                STATUS_PRIORITY,
+                "account",
+                Some(account_id.to_string()),
+            );
+            if jobs::enqueue(&self.pool, &job).await?.is_some() {
+                report.statuses += 1;
+            }
+        }
+
+        debug!(
+            users = report.users,
+            profiles = report.profiles,
+            statuses = report.statuses,
+            "maintenance tick"
+        );
         Ok(report)
     }
 
@@ -133,6 +162,7 @@ impl Maintenance {
             Ok(report) => info!(
                 users = report.users,
                 profiles = report.profiles,
+                statuses = report.statuses,
                 "maintenance queued work"
             ),
             Err(error) => warn!(%error, "maintenance tick failed"),
