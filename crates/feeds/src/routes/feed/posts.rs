@@ -102,6 +102,10 @@ pub async fn posts(
             feed::posts::fresh_affinity_candidates(&state.pool, user.id, 80).await,
         ),
         (
+            "recent",
+            feed::posts::recent_candidates(&state.pool, user.id, 60).await,
+        ),
+        (
             "exploration",
             feed::posts::exploration_candidates(&state.pool, user.id, 80).await,
         ),

@@ -379,6 +379,70 @@ pub async fn fresh_affinity_candidates(
     .await
 }
 
+/// Public posts from the last week, regardless of affinity.
+///
+/// Freshness is its own signal: on a quiet instance the affinity snapshot can be
+/// empty while the federated timeline is not. These rows give the ranker
+/// something current to weigh, with a deliberately modest affinity so a known
+/// author still wins when both are fresh.
+pub async fn recent_candidates(
+    pool: &PgPool,
+    user_id: Uuid,
+    limit: i64,
+) -> Result<Vec<PostCandidate>, sqlx::Error> {
+    sqlx::query_as::<_, PostCandidate>(
+        r"
+        WITH me AS (
+            SELECT a.id AS account_id
+            FROM app_user u
+            JOIN account a
+              ON a.instance_host = u.instance_host
+             AND a.mastodon_id = u.mastodon_account_id
+            WHERE u.id = $1
+        )
+        SELECT
+            s.id AS status_id, s.account_id AS account_id,
+            0.25::double precision AS affinity,
+            coalesce(s.content, '') AS content,
+            s.favourites_count, s.reblogs_count, s.replies_count,
+            s.created_at AS published_at,
+            s.in_reply_to_id IS NOT NULL AS is_reply,
+            a.acct::text AS account_acct, a.display_name AS account_display_name,
+            a.avatar_url AS account_avatar_url, a.followers_count AS account_followers_count,
+            a.instance_host::text AS instance_host, s.url,
+            coalesce(s.media, '[]'::jsonb) AS media, s.sensitive,
+            coalesce(s.spoiler_text, '') AS spoiler_text,
+            coalesce(s.emojis, '[]'::jsonb) AS emojis
+        FROM status s
+        JOIN account a ON a.id = s.account_id
+        JOIN me ON true
+        WHERE s.visibility IN ('public', 'unlisted')
+          AND btrim(coalesce(s.content, '')) <> ''
+          AND s.expires_at > now()
+          AND s.created_at > now() - interval '7 days'
+          AND a.moved_to_account_id IS NULL
+          AND a.discoverable IS DISTINCT FROM false
+          AND a.id <> me.account_id
+          AND NOT EXISTS (
+              SELECT 1 FROM follow_edge fe
+              WHERE fe.follower_id = me.account_id AND fe.followee_id = a.id
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM interaction_event e
+              JOIN recommendation_item ri ON ri.id = e.item_id
+              WHERE e.user_id = $1 AND ri.account_id = a.id
+                AND e.kind IN ('dismiss', 'not_interested')
+          )
+        ORDER BY s.created_at DESC
+        LIMIT $2
+        ",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
 /// Posts from accounts two to four follows away.
 ///
 /// This is the exploration rung. Affinity only knows people the user's neighbourhood
