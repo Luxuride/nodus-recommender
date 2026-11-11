@@ -209,7 +209,13 @@ pub async fn posts(
                 .filter(|name| !name.trim().is_empty())
                 .unwrap_or_else(|| candidate.account_acct.clone()),
             account_avatar_url: candidate.account_avatar_url.clone().unwrap_or_default(),
-            account_url: account_url(&candidate.account_acct, &candidate.instance_host),
+            account_url: account_path(
+                &candidate.account_acct,
+                &candidate.instance_host,
+                &candidate.account_instance_host,
+                candidate.account_mastodon_id,
+                candidate.account_remote_id.as_deref(),
+            ),
             text: candidate.content.clone(),
             published_at: rfc3339(candidate.published_at),
             favourites_count: i64::from(candidate.favourites_count),
@@ -320,7 +326,13 @@ fn post_item(row: feed::posts::SnapshotPost) -> PostItem {
             .filter(|name| !name.trim().is_empty())
             .unwrap_or_else(|| row.account_acct.clone()),
         account_avatar_url: row.account_avatar_url.unwrap_or_default(),
-        account_url: account_url(&row.account_acct, &row.instance_host),
+        account_url: account_path(
+            &row.account_acct,
+            &row.instance_host,
+            &row.account_instance_host,
+            row.account_mastodon_id,
+            row.account_remote_id.as_deref(),
+        ),
         text: row.content,
         published_at: rfc3339(row.published_at),
         favourites_count: i64::from(row.favourites_count),
@@ -336,11 +348,29 @@ fn post_item(row: feed::posts::SnapshotPost) -> PostItem {
     }
 }
 
-/// A post's author page, preferring the author's own instance.
-fn account_url(acct: &str, fallback_host: &str) -> String {
-    acct.split_once('@').map_or_else(
-        || format!("https://{fallback_host}/@{acct}"),
-        |(user, host)| format!("https://{host}/@{user}"),
+/// The author page on this Nodus, with the id that page can resolve.
+///
+/// A post cached by the home instance carries the home instance's shadow id; an
+/// origin-fetched post carries the author's own id. Mixing those two is what sent
+/// readers to the wrong server.
+fn account_path(
+    acct: &str,
+    status_host: &str,
+    account_host: &str,
+    local_id: i64,
+    remote_id: Option<&str>,
+) -> String {
+    if status_host == account_host {
+        return format!("/accounts/{account_host}/{local_id}");
+    }
+    remote_id.map_or_else(
+        || {
+            acct.split_once('@').map_or_else(
+                || format!("https://{account_host}/@{acct}"),
+                |(user, host)| format!("https://{host}/@{user}"),
+            )
+        },
+        |id| format!("/accounts/{status_host}/{id}"),
     )
 }
 
