@@ -78,6 +78,7 @@ pub async fn candidates(
         WHERE af.user_id = $1
           AND af.expires_at > now()
           AND s.visibility IN ('public', 'unlisted')
+          AND btrim(coalesce(s.content, '')) <> ''
           AND s.expires_at > now()
           AND s.created_at > now() - ($3::int * interval '1 day')
           AND a.moved_to_account_id IS NULL
@@ -145,6 +146,7 @@ pub async fn fallback_candidates(
         JOIN account a ON a.id = s.account_id
         JOIN me ON true
         WHERE s.visibility IN ('public', 'unlisted')
+          AND btrim(coalesce(s.content, '')) <> ''
           AND s.expires_at > now()
           AND s.created_at > now() - ($3::int * interval '1 day')
           AND a.moved_to_account_id IS NULL
@@ -270,6 +272,7 @@ pub async fn page(
         WHERE ri.user_id = $1
           AND ri.feed_id = $2
           AND ri.kind = 'post'
+          AND btrim(coalesce(s.content, '')) <> ''
           AND ri.id > $3
         ORDER BY ri.id
         LIMIT $4
