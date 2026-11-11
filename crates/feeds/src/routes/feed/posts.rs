@@ -106,6 +106,10 @@ pub async fn posts(
             feed::posts::recent_candidates(&state.pool, user.id, 60).await,
         ),
         (
+            "personal",
+            feed::posts::personal_candidates(&state.pool, user.id, 100).await,
+        ),
+        (
             "exploration",
             feed::posts::exploration_candidates(&state.pool, user.id, 80).await,
         ),
@@ -132,17 +136,52 @@ pub async fn posts(
         }
     }
     let mut candidates = by_status.into_values().collect::<Vec<_>>();
-    let cold_start = candidates.is_empty();
-    if cold_start {
-        candidates =
+    if candidates.len() < 40 {
+        let mut backfill =
             feed::posts::fallback_candidates(&state.pool, user.id, SNAPSHOT_LIMIT as i64 + 1)
                 .await
                 .map_err(|error| {
                     tracing::error!(?error, "fallback post candidates");
                     error
                 })?;
+        for candidate in &mut backfill {
+            candidate.affinity = candidate.affinity.min(0.2);
+        }
+        let known = candidates
+            .iter()
+            .map(|candidate| candidate.status_id)
+            .collect::<std::collections::HashSet<_>>();
+        candidates.extend(
+            backfill
+                .into_iter()
+                .filter(|candidate| !known.contains(&candidate.status_id)),
+        );
     }
-    let (ranked, _) = rank(candidates, now, SNAPSHOT_LIMIT, cold_start);
+    // No single account may dominate the page, however loud its posts are.
+    let mut per_author = std::collections::HashMap::new();
+    candidates.retain(|candidate| {
+        let count = per_author.entry(candidate.account_id).or_insert(0_usize);
+        *count += 1;
+        *count <= 2
+    });
+    let texts = feed::posts::interest_texts(&state.pool, user.id, 80)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::error!(?error, "interest profile texts");
+            Vec::new()
+        });
+    let interests = nodus_core::interest::profile(&texts);
+    let overlap = nodus_core::interest::least_overlap(&interests);
+    if !interests.is_empty() {
+        tracing::info!(
+            interests = interests.len(),
+            least_overlap = overlap,
+            swing = overlap < nodus_core::interest::SWING_SIMILARITY,
+            "interest profile"
+        );
+    }
+    let cold_start = candidates.is_empty();
+    let (ranked, _) = rank(candidates, now, SNAPSHOT_LIMIT, cold_start, &interests);
 
     let new_items = ranked
         .iter()
@@ -212,6 +251,7 @@ fn rank(
     now: OffsetDateTime,
     keep: usize,
     cold_start: bool,
+    interests: &[Vec<f32>],
 ) -> (Vec<(f64, feed::posts::PostCandidate)>, bool) {
     let mut ranked = candidates
         .into_iter()
@@ -229,7 +269,15 @@ fn rank(
                 false,
                 false,
             );
-            (score, candidate)
+            // A post is personal when it is close to *one* of the reader's
+            // interests. Never average the interests into a midpoint.
+            let similarity = nodus_core::interest::best_similarity(interests, &candidate.content);
+            let personal = if interests.is_empty() {
+                1.0
+            } else {
+                0.55 + 0.45 * f64::from(similarity.max(0.0))
+            };
+            (score * personal, candidate)
         })
         .filter(|(score, _)| score.is_finite() && *score > f64::from(f32::MIN_POSITIVE))
         .collect::<Vec<_>>();

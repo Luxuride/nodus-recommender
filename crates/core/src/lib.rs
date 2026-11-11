@@ -19,6 +19,7 @@ pub mod drift;
 pub mod evidence;
 pub mod explore;
 pub mod idf;
+pub mod interest;
 pub mod labels;
 pub mod post;
 pub mod ranking;

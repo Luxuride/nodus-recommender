@@ -167,6 +167,7 @@ pub async fn fallback_candidates(
           AND s.created_at > now() - ($3::int * interval '1 day')
           AND a.moved_to_account_id IS NULL
           AND a.discoverable IS DISTINCT FROM false
+          AND a.followers_count < 50_000
           AND a.id <> me.account_id
           AND NOT EXISTS (
               SELECT 1
@@ -422,6 +423,7 @@ pub async fn recent_candidates(
           AND s.created_at > now() - interval '7 days'
           AND a.moved_to_account_id IS NULL
           AND a.discoverable IS DISTINCT FROM false
+          AND a.followers_count < 50_000
           AND a.id <> me.account_id
           AND NOT EXISTS (
               SELECT 1 FROM follow_edge fe
@@ -589,6 +591,7 @@ pub async fn trending_candidates(
           AND s.favourites_count + 2 * s.reblogs_count > 0
           AND a.moved_to_account_id IS NULL
           AND a.discoverable IS DISTINCT FROM false
+          AND a.followers_count < 50_000
           AND a.id <> me.account_id
           AND NOT EXISTS (
               SELECT 1 FROM follow_edge fe
@@ -604,6 +607,170 @@ pub async fn trending_candidates(
             (s.favourites_count + 2 * s.reblogs_count)::double precision
                 / (extract(epoch FROM now() - s.created_at) / 3600.0 + 2.0) DESC,
             s.created_at DESC
+        LIMIT $2
+        ",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Accounts the reader's follows also follow, and authors the reader has already
+/// boosted, replied to or followed. This is the feed's personal rung: it never
+/// starts from the public timeline, so a large remote account cannot enter on
+/// reach alone.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one readable statement of the personal candidate query beats four helpers"
+)]
+pub async fn personal_candidates(
+    pool: &PgPool,
+    user_id: Uuid,
+    limit: i64,
+) -> Result<Vec<PostCandidate>, sqlx::Error> {
+    sqlx::query_as::<_, PostCandidate>(
+        r"
+        WITH me AS (
+            SELECT account_id
+            FROM app_user
+            WHERE id = $1
+              AND account_id IS NOT NULL
+        ),
+        followed AS (
+            SELECT followee_id AS account_id
+            FROM follow_edge
+            WHERE follower_id = (SELECT account_id FROM me)
+        ),
+        shared AS (
+            SELECT peer.followee_id AS account_id,
+                   LEAST(0.90, 0.25 + 0.08 * count(*))::real AS affinity
+            FROM followed AS mine
+            JOIN follow_edge AS peer ON peer.follower_id = mine.account_id
+            WHERE peer.followee_id <> (SELECT account_id FROM me)
+              AND NOT EXISTS (
+                  SELECT 1 FROM followed AS already
+                  WHERE already.account_id = peer.followee_id
+              )
+            GROUP BY peer.followee_id
+            HAVING count(*) >= 2
+        ),
+        acted AS (
+            SELECT coalesce(item.account_id, status.account_id) AS account_id,
+                   LEAST(0.95, 0.50 + 0.05 * count(*))::real AS affinity
+            FROM interaction_event AS event
+            JOIN recommendation_item AS item ON item.id = event.item_id
+            LEFT JOIN status ON status.id = item.status_id
+            WHERE event.user_id = $1
+              AND event.kind IN ('boost', 'reply', 'follow', 'click')
+            GROUP BY 1
+        ),
+        source AS (
+            SELECT account_id, affinity FROM shared
+            UNION ALL
+            SELECT account_id, affinity FROM acted
+        ),
+        best AS (
+            SELECT account_id, max(affinity) AS affinity
+            FROM source
+            GROUP BY account_id
+        ),
+        ranked AS (
+            SELECT s.id AS status_id,
+                   s.created_at,
+                   s.content,
+                   s.url,
+                   coalesce(s.media, '[]'::jsonb) AS media,
+                   s.sensitive,
+                   coalesce(s.spoiler_text, '') AS spoiler_text,
+                   coalesce(s.emojis, '[]'::jsonb) AS emojis,
+                   a.id AS account_id,
+                   a.instance_host,
+                   a.acct,
+                   coalesce(nullif(a.display_name, ''), a.acct) AS account_display_name,
+                   coalesce(a.avatar_url, '') AS account_avatar_url,
+                   s.favourites_count,
+                   s.reblogs_count,
+                   s.replies_count,
+                   best.affinity,
+                   row_number() OVER (
+                       PARTITION BY a.id
+                       ORDER BY s.created_at DESC
+                   ) AS position
+            FROM best
+            JOIN account AS a ON a.id = best.account_id
+            JOIN status AS s ON s.account_id = a.id
+            WHERE s.visibility IN ('public', 'unlisted')
+              AND btrim(coalesce(s.content, '')) <> ''
+              AND s.expires_at > now()
+              AND s.created_at > now() - interval '30 days'
+              AND a.moved_to_account_id IS NULL
+              AND a.discoverable IS DISTINCT FROM false
+              AND NOT EXISTS (
+                  SELECT 1 FROM interaction_event AS event
+                  WHERE event.user_id = $1
+                    AND event.item_id IN (
+                        SELECT id FROM recommendation_item
+                        WHERE status_id = s.id AND user_id = $1
+                    )
+                    AND event.kind IN ('dismiss', 'not_interested')
+              )
+        )
+        SELECT status_id, created_at, content, url, media, sensitive, spoiler_text,
+               emojis, account_id, instance_host, acct, account_display_name,
+               account_avatar_url, favourites_count, reblogs_count, replies_count,
+               affinity
+        FROM ranked
+        WHERE position <= 2
+        ORDER BY affinity DESC, created_at DESC
+        LIMIT $2
+        ",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Text the reader has already signalled interest in: posts they boosted or
+/// replied through the recommender, plus recent posts from accounts they follow.
+/// The caller turns these into a multi-interest vector profile.
+pub async fn interest_texts(
+    pool: &PgPool,
+    user_id: Uuid,
+    limit: i64,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>(
+        r"
+        WITH me AS (
+            SELECT account_id
+            FROM app_user
+            WHERE id = $1 AND account_id IS NOT NULL
+        ),
+        acted AS (
+            SELECT status.content
+            FROM interaction_event AS event
+            JOIN recommendation_item AS item ON item.id = event.item_id
+            JOIN status ON status.id = item.status_id
+            WHERE event.user_id = $1
+              AND event.kind IN ('boost', 'reply', 'follow', 'click')
+              AND btrim(coalesce(status.content, '')) <> ''
+            ORDER BY event.server_ts DESC
+            LIMIT $2
+        ),
+        followed AS (
+            SELECT status.content
+            FROM follow_edge AS edge
+            JOIN status ON status.account_id = edge.followee_id
+            WHERE edge.follower_id = (SELECT account_id FROM me)
+              AND status.created_at > now() - interval '30 days'
+              AND btrim(coalesce(status.content, '')) <> ''
+            ORDER BY status.created_at DESC
+            LIMIT $2
+        )
+        SELECT content FROM acted
+        UNION ALL
+        SELECT content FROM followed
         LIMIT $2
         ",
     )

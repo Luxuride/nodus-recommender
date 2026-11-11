@@ -83,6 +83,7 @@ impl Handler for RefreshPublic {
                 .map_err(|error| database(&error))?;
 
             let mut batch = Vec::new();
+            let mut avatars = HashSet::new();
             for status in &page.items {
                 if status.reblog.is_some() {
                     continue;
@@ -96,6 +97,11 @@ impl Handler for RefreshPublic {
                 else {
                     continue;
                 };
+                if avatars.insert(local_id) && !status.account.avatar.trim().is_empty() {
+                    accounts::set_avatar(&self.pool, local_id, &status.account.avatar)
+                        .await
+                        .map_err(|error| database(&error))?;
+                }
                 if let Some(row) = fetch::map_status(host, local_id, status) {
                     batch.push(row);
                 }
