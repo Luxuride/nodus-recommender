@@ -163,7 +163,7 @@ pub async fn fallback_candidates(
     )
     .bind(user_id)
     .bind(limit)
-    .bind(30_i32)
+    .bind(365_i32)
     .fetch_all(pool)
     .await
 }

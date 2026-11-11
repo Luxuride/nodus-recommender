@@ -22,6 +22,12 @@ use uuid::Uuid;
 use super::ensure_continuable;
 use super::params::{DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT, contract_gate, degraded_flag};
 
+/// How many ranked candidates a fresh snapshot keeps.
+///
+/// The wire page is smaller; the rest stay in `recommendation_item` so a cursor can keep
+/// reading the same order without asking the ranker to invent a second, inconsistent one.
+const SNAPSHOT_LIMIT: usize = 200;
+
 /// `GET /api/v1/feed/posts`
 ///
 /// # Errors
@@ -75,22 +81,23 @@ pub async fn posts(
     let model_version = feed::active_model_version(&state.pool).await?;
     let feed_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
-    let mut candidates = feed::posts::candidates(&state.pool, user.id, limit + 1)
+    let mut candidates = feed::posts::candidates(&state.pool, user.id, SNAPSHOT_LIMIT as i64 + 1)
         .await
         .map_err(|error| {
             tracing::error!(?error, "post candidates");
             error
         })?;
-    if candidates.is_empty() {
-        candidates = feed::posts::fallback_candidates(&state.pool, user.id, limit + 1)
-            .await
-            .map_err(|error| {
-                tracing::error!(?error, "fallback post candidates");
-                error
-            })?;
+    let cold_start = candidates.is_empty();
+    if cold_start {
+        candidates =
+            feed::posts::fallback_candidates(&state.pool, user.id, SNAPSHOT_LIMIT as i64 + 1)
+                .await
+                .map_err(|error| {
+                    tracing::error!(?error, "fallback post candidates");
+                    error
+                })?;
     }
-    let keep = usize::try_from(limit).unwrap_or(0);
-    let (ranked, more) = rank(candidates, now, keep);
+    let (ranked, _) = rank(candidates, now, SNAPSHOT_LIMIT, cold_start);
 
     let new_items = ranked
         .iter()
@@ -103,7 +110,7 @@ pub async fn posts(
     let persisted =
         feed::posts::persist(&state.pool, user.id, feed_id, model_version, &new_items).await?;
 
-    let items = persisted
+    let all_items = persisted
         .into_iter()
         .zip(ranked.iter())
         .map(|((item_id, _), (_, candidate))| PostItem {
@@ -125,10 +132,13 @@ pub async fn posts(
             reason: reason_for(),
         })
         .collect::<Vec<_>>();
+    let keep = usize::try_from(limit).unwrap_or(0);
+    let more = all_items.len() > keep;
+    let items = all_items.into_iter().take(keep).collect::<Vec<_>>();
     let next_cursor =
         more.then(|| cursor::encode(feed_id, items.last().map_or(0, |item| item.item_id)));
 
-    tracing::debug!(%feed_id, items = items.len(), "ranked a post snapshot");
+    tracing::debug!(%feed_id, items = items.len(), snapshot = ranked.len(), "ranked a post snapshot");
     Ok(Json(PostFeed {
         feed_id: feed_id.to_string(),
         generated_at: rfc3339(now),
@@ -150,13 +160,19 @@ fn rank(
     candidates: Vec<feed::posts::PostCandidate>,
     now: OffsetDateTime,
     keep: usize,
+    cold_start: bool,
 ) -> (Vec<(f64, feed::posts::PostCandidate)>, bool) {
     let mut ranked = candidates
         .into_iter()
         .map(|candidate| {
+            let age = hours_between(now, candidate.published_at);
+            // A cold pool intentionally reaches further back; without a floor the
+            // eight-hour half-life turns a year-old post into f64 noise that cannot
+            // survive the `real` score column.
+            let age = if cold_start { age.min(72.0) } else { age };
             let score = post_score(
                 candidate.affinity,
-                hours_between(now, candidate.published_at),
+                age,
                 engagement_prior(candidate.favourites_count, candidate.reblogs_count),
                 candidate.is_reply,
                 false,
