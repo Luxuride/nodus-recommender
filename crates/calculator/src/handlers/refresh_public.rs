@@ -131,6 +131,7 @@ fn account_row(host: &str, account: &nodus_instance::model::Account) -> Option<N
     Some(NewAccount {
         instance_host: host.to_owned(),
         mastodon_id,
+        remote_id: None,
         acct: account.acct.clone(),
         display_name: Some(account.display_name.clone()),
         followers_count: i32::try_from(account.followers_count).unwrap_or(i32::MAX),

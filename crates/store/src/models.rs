@@ -33,6 +33,7 @@ pub struct Account {
     pub id: i64,
     pub instance_host: String,
     pub mastodon_id: i64,
+    pub remote_id: Option<String>,
     pub acct: String,
     pub display_name: Option<String>,
     pub followers_count: i32,
@@ -80,6 +81,7 @@ pub mod job_status {
 pub struct NewAccount {
     pub instance_host: String,
     pub mastodon_id: i64,
+    pub remote_id: Option<String>,
     pub acct: String,
     pub display_name: Option<String>,
     pub followers_count: i32,

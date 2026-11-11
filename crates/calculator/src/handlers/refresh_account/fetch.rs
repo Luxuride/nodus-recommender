@@ -120,8 +120,14 @@ async fn refresh_remote(
     user: &str,
     origin: &str,
 ) -> Result<u64, JobError> {
+    users::ensure_instance(pool, origin)
+        .await
+        .map_err(|error| database(&error))?;
     let api = public_transport(origin, config)?;
     let remote = api.account_lookup(user).await.map_err(classify)?;
+    accounts::set_remote_id(pool, account.id, &remote.id)
+        .await
+        .map_err(|error| database(&error))?;
     let author = LocalId(remote.id.clone());
     let (batch, avatar) = walk(&api, &author, origin, account.id, config).await?;
 

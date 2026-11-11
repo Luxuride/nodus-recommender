@@ -88,6 +88,7 @@ impl SyncUser {
                                 account.id
                             )))
                         })?,
+                        remote_id: None,
                         acct: account.acct.clone(),
                         display_name: optional_text(&account.display_name),
                         followers_count: i32::try_from(account.followers_count).unwrap_or(i32::MAX),

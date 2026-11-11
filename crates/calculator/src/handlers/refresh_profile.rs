@@ -166,6 +166,7 @@ impl RefreshProfile {
                 Some(NewAccount {
                     instance_host: target.instance_host.clone(),
                     mastodon_id,
+                    remote_id: None,
                     acct: account.acct.clone(),
                     display_name: (!account.display_name.is_empty())
                         .then(|| account.display_name.clone()),
