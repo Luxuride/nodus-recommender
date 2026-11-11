@@ -211,7 +211,11 @@ pub async fn needing_graph(pool: &PgPool, limit: i64) -> Result<Vec<CrawlTarget>
                 OR account.graph_fetched_at < now() - interval '7 days') \
            AND (EXISTS (SELECT 1 FROM follow_edge AS edge WHERE edge.followee_id = account.id) \
                 OR EXISTS (SELECT 1 FROM account_affinity AS affinity \
-                           WHERE affinity.account_id = account.id)) \
+                           WHERE affinity.account_id = account.id) \
+                OR EXISTS ( \
+                    SELECT 1 FROM profile_edge AS edge \
+                    WHERE edge.kind = 'follow' AND edge.target_account_id = account.id \
+                )) \
          ORDER BY account.id \
          LIMIT $1",
     )

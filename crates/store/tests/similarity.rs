@@ -25,6 +25,9 @@ async fn seed_user(pool: &PgPool, host: &str, mastodon_id: i64, acct: &str) -> (
             followers_count: 0,
             bot: false,
             locked: false,
+            discoverable: None,
+            indexable: None,
+            noindex: None,
         }],
     )
     .await
@@ -49,6 +52,9 @@ async fn seed_account(pool: &PgPool, host: &str, mastodon_id: i64, acct: &str) -
             followers_count: 0,
             bot: false,
             locked: false,
+            discoverable: None,
+            indexable: None,
+            noindex: None,
         }],
     )
     .await

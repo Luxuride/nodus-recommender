@@ -85,4 +85,7 @@ pub struct NewAccount {
     pub followers_count: i32,
     pub bot: bool,
     pub locked: bool,
+    pub discoverable: Option<bool>,
+    pub indexable: Option<bool>,
+    pub noindex: Option<bool>,
 }

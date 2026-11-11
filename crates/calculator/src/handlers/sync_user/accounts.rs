@@ -9,8 +9,8 @@
 use core::fmt::{self, Write as _};
 use std::time::Duration;
 
-use nodus_instance::InstanceApi;
 use nodus_instance::HttpInstance;
+use nodus_instance::InstanceApi;
 use nodus_store::accounts;
 use nodus_store::crypto::fingerprint as token_fingerprint;
 use nodus_store::models::NewAccount;
@@ -144,6 +144,9 @@ impl SyncUser {
                 followers_count: i32::try_from(account.followers_count).unwrap_or(i32::MAX),
                 bot: account.bot,
                 locked: account.locked,
+                discoverable: account.discoverable,
+                indexable: account.indexable,
+                noindex: account.noindex,
             }],
         )
         .await

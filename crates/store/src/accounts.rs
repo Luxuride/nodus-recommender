@@ -34,20 +34,28 @@ pub async fn upsert_many(pool: &PgPool, accounts: &[NewAccount]) -> Result<u64, 
     let followers: Vec<i32> = accounts.iter().map(|a| a.followers_count).collect();
     let bots: Vec<bool> = accounts.iter().map(|a| a.bot).collect();
     let locked: Vec<bool> = accounts.iter().map(|a| a.locked).collect();
+    let discoverable: Vec<Option<bool>> = accounts.iter().map(|a| a.discoverable).collect();
+    let indexable: Vec<Option<bool>> = accounts.iter().map(|a| a.indexable).collect();
+    let noindex: Vec<Option<bool>> = accounts.iter().map(|a| a.noindex).collect();
 
     let result = sqlx::query(
         "INSERT INTO account (instance_host, mastodon_id, acct, display_name, followers_count, \
-             bot, locked, last_fetched_at) \
-         SELECT host, mastodon_id, acct, display_name, followers_count, bot, locked, NULL \
+             bot, locked, last_fetched_at, discoverable, indexable, noindex) \
+         SELECT host, mastodon_id, acct, display_name, followers_count, bot, locked, NULL, \
+                discoverable, indexable, noindex \
          FROM UNNEST($1::text[], $2::bigint[], $3::text[], $4::text[], $5::int[], \
-                     $6::bool[], $7::bool[]) \
-             AS page (host, mastodon_id, acct, display_name, followers_count, bot, locked) \
+                     $6::bool[], $7::bool[], $8::bool[], $9::bool[], $10::bool[]) \
+             AS page (host, mastodon_id, acct, display_name, followers_count, bot, locked, \
+                      discoverable, indexable, noindex) \
          ON CONFLICT (instance_host, mastodon_id) DO UPDATE SET \
              acct = EXCLUDED.acct, \
              display_name = COALESCE(EXCLUDED.display_name, account.display_name), \
              followers_count = EXCLUDED.followers_count, \
              bot = EXCLUDED.bot, \
              locked = EXCLUDED.locked, \
+             discoverable = COALESCE(EXCLUDED.discoverable, account.discoverable), \
+             indexable = COALESCE(EXCLUDED.indexable, account.indexable), \
+             noindex = COALESCE(EXCLUDED.noindex, account.noindex), \
              updated_at = now()",
     )
     .bind(&hosts)
@@ -57,6 +65,9 @@ pub async fn upsert_many(pool: &PgPool, accounts: &[NewAccount]) -> Result<u64, 
     .bind(&followers)
     .bind(&bots)
     .bind(&locked)
+    .bind(&discoverable)
+    .bind(&indexable)
+    .bind(&noindex)
     .execute(pool)
     .await?;
     Ok(result.rows_affected())
@@ -154,7 +165,33 @@ pub async fn needing_status_refresh(pool: &PgPool, limit: i64) -> Result<Vec<i64
           WHERE (a.last_fetched_at IS NULL OR a.last_fetched_at < now() - interval '7 days') \
             AND a.moved_to_account_id IS NULL \
             AND (EXISTS (SELECT 1 FROM follow_edge f WHERE f.followee_id = a.id) \
-                 OR EXISTS (SELECT 1 FROM account_affinity aa WHERE aa.account_id = a.id)) \
+                 OR EXISTS (SELECT 1 FROM account_affinity aa WHERE aa.account_id = a.id) \
+                 OR EXISTS ( \
+                     SELECT 1 \
+                     FROM follow_edge first_hop \
+                     JOIN profile_edge second_hop \
+                       ON second_hop.account_id = first_hop.followee_id \
+                      AND second_hop.kind = 'follow' \
+                     JOIN app_user u \
+                       ON u.instance_host = a.instance_host \
+                     JOIN account me \
+                       ON me.instance_host = u.instance_host \
+                      AND me.mastodon_id = u.mastodon_account_id \
+                     WHERE second_hop.target_account_id = a.id \
+                       AND first_hop.follower_id = me.id \
+                 ) \
+                 OR EXISTS ( \
+                     SELECT 1 \
+                     FROM profile_edge pe \
+                     JOIN follow_edge f ON f.followee_id = pe.account_id \
+                     JOIN app_user u ON u.instance_host = a.instance_host \
+                     JOIN account me \
+                       ON me.instance_host = u.instance_host \
+                      AND me.mastodon_id = u.mastodon_account_id \
+                     WHERE pe.target_account_id = a.id \
+                       AND pe.kind = 'follow' \
+                       AND f.follower_id = me.id \
+                 )) \
           ORDER BY a.last_fetched_at NULLS FIRST, a.followers_count DESC, a.id \
           LIMIT $1",
     )

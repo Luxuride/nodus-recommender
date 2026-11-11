@@ -8,9 +8,9 @@
 
 use std::time::Duration;
 
+use nodus_instance::HttpInstance;
 use nodus_instance::model::{LocalId, PageParams};
 use nodus_instance::{Error as InstanceError, Instance, SyncApi};
-use nodus_instance::HttpInstance;
 use nodus_store::accounts;
 use nodus_store::models::NewAccount;
 use tracing::warn;
@@ -93,6 +93,9 @@ impl SyncUser {
                         followers_count: i32::try_from(account.followers_count).unwrap_or(i32::MAX),
                         bot: account.bot,
                         locked: account.locked,
+                        discoverable: account.discoverable,
+                        indexable: account.indexable,
+                        noindex: account.noindex,
                     })
                 })
                 .collect::<Result<_, AttemptError>>()?;

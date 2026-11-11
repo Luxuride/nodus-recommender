@@ -25,6 +25,9 @@ fn account(host: &str, mastodon_id: i64, acct: &str, followers: i32) -> NewAccou
         followers_count: followers,
         bot: false,
         locked: false,
+        discoverable: None,
+        indexable: None,
+        noindex: None,
     }
 }
 

@@ -37,6 +37,11 @@ const SNAPSHOT_LIMIT: usize = 200;
 /// - [`ApiError::BadRequest`] for a cursor this service did not mint.
 /// - [`ApiError::Gone`] for a cursor older than the snapshot lifetime.
 /// - [`ApiError::Database`] when a query fails.
+#[expect(clippy::too_many_lines, reason = "one endpoint, one ranked snapshot")]
+#[expect(
+    clippy::cast_possible_wrap,
+    reason = "the snapshot limit is a small constant"
+)]
 pub async fn posts(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -81,12 +86,48 @@ pub async fn posts(
     let model_version = feed::active_model_version(&state.pool).await?;
     let feed_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
-    let mut candidates = feed::posts::candidates(&state.pool, user.id, SNAPSHOT_LIMIT as i64 + 1)
-        .await
-        .map_err(|error| {
-            tracing::error!(?error, "post candidates");
-            error
-        })?;
+
+    // One ranked list, several reasons to enter it: taste, freshness, a friend of
+    // a friend, and what the instance is actually paying attention to right now.
+    // Deduplicate by status while keeping the strongest affinity, so the same post
+    // cannot occupy two slots.
+    let mut by_status = std::collections::HashMap::new();
+    let sources = [
+        (
+            "affinity",
+            feed::posts::candidates(&state.pool, user.id, 120).await,
+        ),
+        (
+            "fresh",
+            feed::posts::fresh_affinity_candidates(&state.pool, user.id, 80).await,
+        ),
+        (
+            "exploration",
+            feed::posts::exploration_candidates(&state.pool, user.id, 80).await,
+        ),
+        (
+            "trending",
+            feed::posts::trending_candidates(&state.pool, user.id, 60).await,
+        ),
+    ];
+    for (source, result) in sources {
+        match result {
+            Ok(rows) => {
+                for candidate in rows {
+                    let replace = by_status.get(&candidate.status_id).is_none_or(
+                        |current: &feed::posts::PostCandidate| {
+                            candidate.affinity > current.affinity
+                        },
+                    );
+                    if replace {
+                        by_status.insert(candidate.status_id, candidate);
+                    }
+                }
+            }
+            Err(error) => tracing::error!(%source, ?error, "post candidate source"),
+        }
+    }
+    let mut candidates = by_status.into_values().collect::<Vec<_>>();
     let cold_start = candidates.is_empty();
     if cold_start {
         candidates =

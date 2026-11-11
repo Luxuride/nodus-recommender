@@ -248,7 +248,6 @@ async fn a_snapshot_belongs_to_one_user(pool: PgPool) {
     );
 }
 
-
 #[sqlx::test(migrations = "./migrations")]
 async fn followed_posts_fill_an_empty_affinity_pool(pool: PgPool) {
     let (user_id, me) = seed_me(&pool).await;
@@ -271,4 +270,74 @@ async fn followed_posts_fill_an_empty_affinity_pool(pool: PgPool) {
     let ids: Vec<i64> = fallback.iter().map(|row| row.status_id).collect();
     assert_eq!(ids, vec![followed]);
     assert!((fallback[0].affinity - 0.5).abs() < f64::EPSILON);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn exploration_walks_past_the_people_the_user_follows(pool: PgPool) {
+    let (user_id, me) = seed_me(&pool).await;
+    let alice = account(&pool, REMOTE, 20, "alice").await;
+    let dave = account(&pool, REMOTE, 21, "dave").await;
+    accounts::replace_follows(&pool, me, &[alice], "server_sync")
+        .await
+        .expect("me follows alice");
+    accounts::replace_follows(&pool, alice, &[dave], "expansion")
+        .await
+        .expect("alice follows dave");
+    let fresh = post(&pool, 200, dave, "public", Duration::hours(2)).await;
+
+    let rows = posts::exploration_candidates(&pool, user_id, 10)
+        .await
+        .expect("walk two hops out");
+    let ids: Vec<i64> = rows.iter().map(|row| row.status_id).collect();
+    assert_eq!(ids, vec![fresh], "unexpected exploration: {ids:?}");
+    assert!((rows[0].affinity - 0.34).abs() < 1e-6);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn trending_prefers_attention_per_hour(pool: PgPool) {
+    let (user_id, _me) = seed_me(&pool).await;
+    let alice = account(&pool, REMOTE, 30, "alice").await;
+    let bob = account(&pool, REMOTE, 31, "bob").await;
+    let old_but_loved = post(&pool, 300, alice, "public", Duration::days(2)).await;
+    let fresh = post(&pool, 301, bob, "public", Duration::hours(1)).await;
+    for (id, favourites, reblogs) in [(old_but_loved, 200, 50), (fresh, 50, 20)] {
+        sqlx::query("UPDATE status SET favourites_count = $2, reblogs_count = $3 WHERE id = $1")
+            .bind(id)
+            .bind(favourites)
+            .bind(reblogs)
+            .execute(&pool)
+            .await
+            .expect("set engagement");
+    }
+
+    let rows = posts::trending_candidates(&pool, user_id, 10)
+        .await
+        .expect("read trending");
+    let ids: Vec<i64> = rows.iter().map(|row| row.status_id).collect();
+    assert_eq!(ids.first(), Some(&fresh), "unexpected trending: {ids:?}");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn hidden_accounts_stay_out_of_every_pool(pool: PgPool) {
+    let (user_id, _me) = seed_me(&pool).await;
+    let hidden = account(&pool, REMOTE, 40, "hidden").await;
+    sqlx::query("UPDATE account SET discoverable = false WHERE id = $1")
+        .bind(hidden)
+        .execute(&pool)
+        .await
+        .expect("hide the account");
+    post(&pool, 400, hidden, "public", Duration::hours(1)).await;
+
+    assert!(
+        posts::trending_candidates(&pool, user_id, 10)
+            .await
+            .expect("trending")
+            .is_empty()
+    );
+    assert!(
+        posts::fallback_candidates(&pool, user_id, 10)
+            .await
+            .expect("fallback")
+            .is_empty()
+    );
 }

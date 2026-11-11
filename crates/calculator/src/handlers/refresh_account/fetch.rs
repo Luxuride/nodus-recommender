@@ -7,9 +7,9 @@
 
 use std::time::Duration;
 
+use nodus_instance::HttpInstance;
 use nodus_instance::model::{LocalId, MediaAttachment, MediaKind, PageParams, Status, Visibility};
 use nodus_instance::{Error as InstanceError, Instance, InstanceApi};
-use nodus_instance::HttpInstance;
 use nodus_shared::{PostEmoji, PostMedia};
 use nodus_store::accounts;
 use nodus_store::models::Account;

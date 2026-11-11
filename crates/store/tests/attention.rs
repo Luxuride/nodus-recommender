@@ -20,6 +20,9 @@ fn new_account(host: &str, mastodon_id: i64, acct: &str) -> NewAccount {
         followers_count: 0,
         bot: false,
         locked: false,
+        discoverable: None,
+        indexable: None,
+        noindex: None,
     }
 }
 

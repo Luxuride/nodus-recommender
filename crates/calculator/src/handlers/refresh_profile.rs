@@ -55,7 +55,10 @@ const DATABASE_BACKOFF: Duration = Duration::from_secs(60);
 
 /// A database failure that says nothing about the work: retry rather than give up.
 fn database(error: &sqlx::Error) -> JobError {
-    JobError::retry(DATABASE_BACKOFF, format!("the database rejected the pass: {error}"))
+    JobError::retry(
+        DATABASE_BACKOFF,
+        format!("the database rejected the pass: {error}"),
+    )
 }
 
 /// Crawls one account's public follow graph and re-derives its neighbours.
@@ -110,7 +113,9 @@ impl RefreshProfile {
             .config
             .sealer
             .open(&pooled.access_token_enc)
-            .map_err(|error| JobError::permanent(format!("the pooled token cannot be decrypted: {error}")))?;
+            .map_err(|error| {
+                JobError::permanent(format!("the pooled token cannot be decrypted: {error}"))
+            })?;
 
         let authority = format!("{}://{}", self.config.scheme, target.instance_host);
         let instance = Instance::parse(&authority).map_err(|error| {
@@ -167,6 +172,9 @@ impl RefreshProfile {
                     followers_count: i32::try_from(account.followers_count).unwrap_or(i32::MAX),
                     bot: account.bot,
                     locked: account.locked,
+                    discoverable: account.discoverable,
+                    indexable: account.indexable,
+                    noindex: account.noindex,
                 })
             })
             .collect();
@@ -333,7 +341,10 @@ impl Handler for RefreshProfile {
                 profiles::mark_fetched(&self.pool, account_id)
                     .await
                     .map_err(|error| database(&error))?;
-                debug!(account = account_id, "the follow graph is private; nothing to crawl");
+                debug!(
+                    account = account_id,
+                    "the follow graph is private; nothing to crawl"
+                );
                 return Ok(());
             }
 
