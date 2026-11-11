@@ -18,7 +18,7 @@ use nodus_store::users;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::{JobError, RefreshConfig};
 
@@ -53,9 +53,33 @@ pub(super) async fn run(
         )));
     };
 
+    if let Some((user, origin)) = remote_acct(&account.acct) {
+        match refresh_remote(pool, config, &account, user, origin).await {
+            Ok(written) => {
+                statuses::mark_account_fetched(pool, account_id)
+                    .await
+                    .map_err(|error| database(&error))?;
+                info!(
+                    account = account_id,
+                    host = origin,
+                    fetched = written,
+                    "refresh_account finished from the author's instance"
+                );
+                return Ok(written);
+            }
+            Err(error) => warn!(
+                account = account_id,
+                host = origin,
+                ?error,
+                "origin refresh failed; trying the home instance"
+            ),
+        }
+    }
+
     let sealed = pick_token(pool, &account.instance_host).await?;
     let api = transport(&account.instance_host, &sealed, config)?;
-    let (batch, avatar) = walk(&api, &account, config).await?;
+    let author = LocalId(account.mastodon_id.to_string());
+    let (batch, avatar) = walk(&api, &author, &account.instance_host, account.id, config).await?;
 
     let written = statuses::upsert_many(pool, &batch)
         .await
@@ -79,6 +103,48 @@ pub(super) async fn run(
     Ok(written)
 }
 
+/// The `user@host` an account actually lives on, when it is not local.
+fn remote_acct(acct: &str) -> Option<(&str, &str)> {
+    acct.split_once('@')
+        .filter(|(user, host)| !user.is_empty() && !host.is_empty())
+}
+
+/// Read the canonical posts from the author's own instance, without a token.
+///
+/// Mastodon exposes public statuses unauthenticated. That makes the recommender
+/// independent of the home instance's cache and of a pooled token for every host.
+async fn refresh_remote(
+    pool: &PgPool,
+    config: &RefreshConfig,
+    account: &Account,
+    user: &str,
+    origin: &str,
+) -> Result<u64, JobError> {
+    let api = public_transport(origin, config)?;
+    let remote = api.account_lookup(user).await.map_err(classify)?;
+    let author = LocalId(remote.id.clone());
+    let (batch, avatar) = walk(&api, &author, origin, account.id, config).await?;
+
+    let mut fresh = Vec::with_capacity(batch.len());
+    for row in &batch {
+        if !statuses::update_by_url(pool, row)
+            .await
+            .map_err(|error| database(&error))?
+        {
+            fresh.push(row.clone());
+        }
+    }
+    statuses::upsert_many(pool, &fresh)
+        .await
+        .map_err(|error| database(&error))?;
+    if let Some(avatar) = avatar {
+        accounts::set_avatar(pool, account.id, &avatar)
+            .await
+            .map_err(|error| database(&error))?;
+    }
+    Ok(u64::try_from(batch.len()).unwrap_or(u64::MAX))
+}
+
 /// Chooses the token that may read this host's public statuses.
 ///
 /// The pool is shared, so a 401 on one token must not stop the run; the caller
@@ -97,6 +163,17 @@ async fn pick_token(pool: &PgPool, host: &str) -> Result<Vec<u8>, JobError> {
 }
 
 /// Opens a sealed token and builds the transport for one instance.
+pub(crate) fn public_transport(
+    host: &str,
+    config: &RefreshConfig,
+) -> Result<HttpInstance, JobError> {
+    let authority = format!("{}://{host}", config.scheme);
+    let instance = Instance::parse(&authority).map_err(|error| {
+        JobError::permanent(format!("`{host}` is not a usable instance: {error}"))
+    })?;
+    Ok(HttpInstance::new(&instance, String::new()))
+}
+
 pub(crate) fn transport(
     host: &str,
     sealed: &[u8],
@@ -123,10 +200,11 @@ pub(crate) fn transport(
 /// has not spent a request should not wait for a budget it has not touched.
 async fn walk(
     api: &HttpInstance,
-    account: &Account,
+    author: &LocalId,
+    instance_host: &str,
+    account_id: i64,
     config: &RefreshConfig,
 ) -> Result<(Vec<NewStatus>, Option<String>), JobError> {
-    let author = LocalId(account.mastodon_id.to_string());
     let mut params = PageParams::first(config.page_size);
     let mut batch = Vec::new();
     let mut avatar = None;
@@ -136,7 +214,7 @@ async fn walk(
             tokio::time::sleep(config.request_interval).await;
         }
         let result = api
-            .account_statuses(&author, params)
+            .account_statuses(author, params)
             .await
             .map_err(classify)?;
         if result.items.is_empty() {
@@ -153,7 +231,7 @@ async fn walk(
             result
                 .items
                 .iter()
-                .filter_map(|status| map_status(&account.instance_host, account.id, status)),
+                .filter_map(|status| map_status(instance_host, account_id, status)),
         );
         let Some(cursor) = result.next_max_id else {
             break;

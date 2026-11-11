@@ -147,6 +147,53 @@ pub async fn upsert_many(pool: &PgPool, statuses: &[NewStatus]) -> Result<u64, s
     Ok(result.rows_affected())
 }
 
+/// Refresh a status already stored under another instance's copy of it.
+///
+/// An origin-first fetch sees the canonical post; the local instance may already
+/// have cached the same post under its own id. Matching on `(account_id, url)`
+/// updates that row in place instead of creating a second copy of one post.
+pub async fn update_by_url(pool: &PgPool, status: &NewStatus) -> Result<bool, sqlx::Error> {
+    let Some(url) = status.url.as_deref().filter(|url| !url.is_empty()) else {
+        return Ok(false);
+    };
+    let media = serde_json::to_value(&status.media).unwrap_or_else(|_| Value::Array(Vec::new()));
+    let emojis = serde_json::to_value(&status.emojis).unwrap_or_else(|_| Value::Array(Vec::new()));
+    let result = sqlx::query(
+        "UPDATE status SET \
+             content = $3, \
+             visibility = $4, \
+             favourites_count = $5, \
+             reblogs_count = $6, \
+             replies_count = $7, \
+             language = $8, \
+             created_at = $9, \
+             media = $10, \
+             sensitive = $11, \
+             spoiler_text = $12, \
+             emojis = $13, \
+             fetched_at = now(), \
+             expires_at = now() + interval '14 days' \
+         WHERE account_id = $1 AND url = $2 AND url <> '' \
+           AND visibility IN ('public', 'unlisted')",
+    )
+    .bind(status.account_id)
+    .bind(url)
+    .bind(&status.content)
+    .bind(&status.visibility)
+    .bind(status.favourites_count)
+    .bind(status.reblogs_count)
+    .bind(status.replies_count)
+    .bind(&status.language)
+    .bind(status.published_at)
+    .bind(media)
+    .bind(status.sensitive)
+    .bind(&status.spoiler_text)
+    .bind(emojis)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 /// The most recent statuses of one account, newest first.
 ///
 /// Returns `(local id, content)`, which is all the post ranker needs: the text to
