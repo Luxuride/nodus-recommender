@@ -1,9 +1,9 @@
 //! `refresh_public` — the instance's federated public page, written into the pool.
 //!
 //! Personal affinity can be empty on a quiet instance while the federated timeline
-//! still has fresh posts. This handler reads one page of that timeline and stores the
-//! statuses and their authors, so the post feed has current material to rank. It is
-//! deliberately shallow: one page per tick, no paging, and reblogs are skipped.
+//! still has fresh posts. This handler reads a few pages of that timeline and stores
+//! the statuses and their authors, so the post feed has current material to rank.
+//! Reblogs are skipped: the feed wants authored posts, not a boosted copy.
 
 use core::future::Future;
 use core::pin::Pin;
@@ -18,6 +18,10 @@ use sqlx::PgPool;
 
 use super::refresh_account::{RefreshConfig, fetch};
 use super::{Handler, JobError};
+
+/// How many federated pages one tick reads. Three is enough to cover a missed tick on
+/// a quiet instance without turning every refresh into a crawl.
+const PAGES: usize = 3;
 
 /// The federated page handler.
 #[derive(Debug)]
@@ -57,17 +61,24 @@ impl Handler for RefreshPublic {
                 ));
             };
             let api = fetch::transport(host, &pooled.access_token_enc, &self.config)?;
-            let page = api
-                .timeline(
-                    StreamKind::Federated,
-                    PageParams::first(self.config.page_size),
-                )
-                .await
-                .map_err(classify)?;
+            let mut statuses = Vec::new();
+            let mut params = PageParams::first(self.config.page_size);
+            for _ in 0..PAGES {
+                let page = api
+                    .timeline(StreamKind::Federated, params)
+                    .await
+                    .map_err(classify)?;
+                let next = page.next_max_id.clone();
+                statuses.extend(page.items);
+                let Some(next) = next else {
+                    break;
+                };
+                params = PageParams::after(next, self.config.page_size);
+            }
 
             let mut authors = Vec::new();
             let mut seen = HashSet::new();
-            for status in &page.items {
+            for status in &statuses {
                 if status.reblog.is_some() {
                     continue;
                 }
@@ -84,7 +95,7 @@ impl Handler for RefreshPublic {
 
             let mut batch = Vec::new();
             let mut avatars = HashSet::new();
-            for status in &page.items {
+            for status in &statuses {
                 if status.reblog.is_some() {
                     continue;
                 }
