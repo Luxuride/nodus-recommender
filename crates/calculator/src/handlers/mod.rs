@@ -27,6 +27,7 @@ mod recompute_follow_through;
 mod recompute_similarity;
 mod refresh_account;
 mod refresh_profile;
+mod refresh_public;
 mod retain;
 mod sync_user;
 
@@ -34,6 +35,7 @@ pub use recompute_follow_through::RecomputeFollowThrough;
 pub use recompute_similarity::RecomputeSimilarity;
 pub use refresh_account::{RefreshAccount, RefreshConfig};
 pub use refresh_profile::RefreshProfile;
+pub use refresh_public::RefreshPublic;
 pub use retain::Retain;
 pub use sync_user::{SyncConfig, SyncUser};
 
@@ -181,7 +183,8 @@ impl Registry {
     ) -> Self {
         let mut registry = Self::new();
         registry.register(Arc::new(RefreshProfile::new(pool.clone(), sync.clone())));
-        registry.register(Arc::new(RefreshAccount::new(pool.clone(), refresh)));
+        registry.register(Arc::new(RefreshAccount::new(pool.clone(), refresh.clone())));
+        registry.register(Arc::new(RefreshPublic::new(pool.clone(), refresh)));
         registry.register(Arc::new(RecomputeSimilarity::new(pool.clone())));
         registry.register(Arc::new(RecomputeFollowThrough::new(pool.clone())));
         registry.register(Arc::new(SyncUser::new(pool.clone(), sync)));

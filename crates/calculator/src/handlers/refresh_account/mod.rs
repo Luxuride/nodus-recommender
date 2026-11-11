@@ -34,7 +34,7 @@ use sqlx::PgPool;
 
 use super::{Handler, JobError};
 
-mod fetch;
+pub(crate) mod fetch;
 
 #[cfg(test)]
 mod tests;

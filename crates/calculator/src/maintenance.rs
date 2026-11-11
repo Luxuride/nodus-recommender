@@ -57,13 +57,19 @@ pub struct Report {
     pub profiles: usize,
     /// How many authors' status pages were handed to the crawler.
     pub statuses: usize,
+    /// Whether the federated public page was queued this tick.
+    pub publics: usize,
 }
 
 impl Report {
     /// Whether the tick had nothing to do.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        !self.housekeeping && self.users == 0 && self.profiles == 0 && self.statuses == 0
+        !self.housekeeping
+            && self.users == 0
+            && self.profiles == 0
+            && self.statuses == 0
+            && self.publics == 0
     }
 }
 
@@ -130,6 +136,23 @@ impl Maintenance {
             }
         }
 
+        if !jobs::has_outstanding(&self.pool, "refresh_public").await? {
+            let host = sqlx::query_scalar::<_, String>(
+                "SELECT instance_host::text FROM app_user \
+                 WHERE sync_enabled AND deleted_at IS NULL \
+                 ORDER BY token_last_used_at ASC NULLS FIRST, id LIMIT 1",
+            )
+            .fetch_optional(&self.pool)
+            .await?;
+            if let Some(host) = host {
+                let job =
+                    NewJob::pending("refresh_public", STATUS_PRIORITY, "instance", Some(host));
+                if jobs::enqueue(&self.pool, &job).await?.is_some() {
+                    report.publics += 1;
+                }
+            }
+        }
+
         for account_id in
             accounts::needing_status_refresh(&self.pool, STATUS_ACCOUNTS_PER_TICK).await?
         {
@@ -148,6 +171,7 @@ impl Maintenance {
             users = report.users,
             profiles = report.profiles,
             statuses = report.statuses,
+            publics = report.publics,
             "maintenance tick"
         );
         Ok(report)
@@ -163,6 +187,7 @@ impl Maintenance {
                 users = report.users,
                 profiles = report.profiles,
                 statuses = report.statuses,
+                publics = report.publics,
                 "maintenance queued work"
             ),
             Err(error) => warn!(%error, "maintenance tick failed"),

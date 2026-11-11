@@ -97,7 +97,11 @@ async fn pick_token(pool: &PgPool, host: &str) -> Result<Vec<u8>, JobError> {
 }
 
 /// Opens a sealed token and builds the transport for one instance.
-fn transport(host: &str, sealed: &[u8], config: &RefreshConfig) -> Result<HttpInstance, JobError> {
+pub(crate) fn transport(
+    host: &str,
+    sealed: &[u8],
+    config: &RefreshConfig,
+) -> Result<HttpInstance, JobError> {
     let secret = config.sealer.open(sealed).map_err(|error| {
         // One corrupt row must not make the account permanently unrefreshable;
         // the pool rotates, and the next attempt may pick a healthy token.
@@ -170,7 +174,7 @@ async fn walk(
 /// The SDK's [`Status`] does not model Mastodon's `language` field yet, so the
 /// nullable column is left empty here; adding it to the model is a one-line change
 /// once the transports parse it.
-pub(super) fn map_status(
+pub(crate) fn map_status(
     instance_host: &str,
     account_id: i64,
     status: &Status,
