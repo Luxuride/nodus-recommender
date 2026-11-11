@@ -7,9 +7,10 @@
 
 use std::time::Duration;
 
-use nodus_instance::model::{LocalId, PageParams, Status, Visibility};
+use nodus_instance::model::{LocalId, MediaAttachment, MediaKind, PageParams, Status, Visibility};
 use nodus_instance::{Error as InstanceError, Instance, InstanceApi};
 use nodus_instance::HttpInstance;
+use nodus_shared::{PostEmoji, PostMedia};
 use nodus_store::accounts;
 use nodus_store::models::Account;
 use nodus_store::statuses::{self, NewStatus};
@@ -54,11 +55,16 @@ pub(super) async fn run(
 
     let sealed = pick_token(pool, &account.instance_host).await?;
     let api = transport(&account.instance_host, &sealed, config)?;
-    let batch = walk(&api, &account, config).await?;
+    let (batch, avatar) = walk(&api, &account, config).await?;
 
     let written = statuses::upsert_many(pool, &batch)
         .await
         .map_err(|error| database(&error))?;
+    if let Some(avatar) = avatar {
+        accounts::set_avatar(pool, account_id, &avatar)
+            .await
+            .map_err(|error| database(&error))?;
+    }
     statuses::mark_account_fetched(pool, account_id)
         .await
         .map_err(|error| database(&error))?;
@@ -115,10 +121,11 @@ async fn walk(
     api: &HttpInstance,
     account: &Account,
     config: &RefreshConfig,
-) -> Result<Vec<NewStatus>, JobError> {
+) -> Result<(Vec<NewStatus>, Option<String>), JobError> {
     let author = LocalId(account.mastodon_id.to_string());
     let mut params = PageParams::first(config.page_size);
     let mut batch = Vec::new();
+    let mut avatar = None;
 
     for page in 0..config.max_pages {
         if page > 0 {
@@ -130,6 +137,13 @@ async fn walk(
             .map_err(classify)?;
         if result.items.is_empty() {
             break;
+        }
+        if avatar.is_none() {
+            avatar = result
+                .items
+                .iter()
+                .find(|status| !status.account.avatar.trim().is_empty())
+                .map(|status| status.account.avatar.clone());
         }
         batch.extend(
             result
@@ -143,7 +157,7 @@ async fn walk(
         params = PageParams::after(cursor, config.page_size);
     }
 
-    Ok(batch)
+    Ok((batch, avatar))
 }
 
 /// Keep one status if it is publicly readable, as a row the store can write.
@@ -178,7 +192,41 @@ pub(super) fn map_status(
         replies_count: count(status.replies_count),
         language: None,
         published_at,
+        url: status.url.clone(),
+        media: status.media_attachments.iter().map(post_media).collect(),
+        sensitive: status.sensitive,
+        spoiler_text: status.spoiler_text.clone(),
+        emojis: status.emojis.iter().map(post_emoji).collect(),
     })
+}
+
+/// The wire shape keeps Mastodon's `type` spelling between the two structs.
+fn post_media(media: &MediaAttachment) -> PostMedia {
+    PostMedia {
+        id: media.id.clone(),
+        kind: match media.kind {
+            MediaKind::Image => "image",
+            MediaKind::Video => "video",
+            MediaKind::Gifv => "gifv",
+            MediaKind::Audio => "audio",
+            MediaKind::Unknown => "unknown",
+        }
+        .to_owned(),
+        url: media.url.clone(),
+        preview_url: media.preview_url.clone(),
+        description: media.description.clone(),
+        blurhash: media.blurhash.clone(),
+        meta_width: media.meta_width,
+        meta_height: media.meta_height,
+    }
+}
+
+fn post_emoji(emoji: &nodus_instance::model::CustomEmoji) -> PostEmoji {
+    PostEmoji {
+        shortcode: emoji.shortcode.clone(),
+        url: emoji.url.clone(),
+        static_url: emoji.static_url.clone(),
+    }
 }
 
 /// A `u64` counter narrowed to the table's `integer` column, saturating.

@@ -123,12 +123,18 @@ pub async fn posts(
                 .filter(|name| !name.trim().is_empty())
                 .unwrap_or_else(|| candidate.account_acct.clone()),
             account_avatar_url: candidate.account_avatar_url.clone().unwrap_or_default(),
+            account_url: account_url(&candidate.account_acct, &candidate.instance_host),
             text: candidate.content.clone(),
             published_at: rfc3339(candidate.published_at),
             favourites_count: i64::from(candidate.favourites_count),
             reblogs_count: i64::from(candidate.reblogs_count),
             replies_count: i64::from(candidate.replies_count),
             instance_host: candidate.instance_host.clone(),
+            url: candidate.url.clone().unwrap_or_default(),
+            media: serde_json::from_value(candidate.media.clone()).unwrap_or_default(),
+            sensitive: candidate.sensitive,
+            spoiler_text: candidate.spoiler_text.clone(),
+            emojis: serde_json::from_value(candidate.emojis.clone()).unwrap_or_default(),
             reason: reason_for(),
         })
         .collect::<Vec<_>>();
@@ -217,14 +223,28 @@ fn post_item(row: feed::posts::SnapshotPost) -> PostItem {
             .filter(|name| !name.trim().is_empty())
             .unwrap_or_else(|| row.account_acct.clone()),
         account_avatar_url: row.account_avatar_url.unwrap_or_default(),
+        account_url: account_url(&row.account_acct, &row.instance_host),
         text: row.content,
         published_at: rfc3339(row.published_at),
         favourites_count: i64::from(row.favourites_count),
         reblogs_count: i64::from(row.reblogs_count),
         replies_count: i64::from(row.replies_count),
         instance_host: row.instance_host,
+        url: row.url.unwrap_or_default(),
+        media: serde_json::from_value(row.media).unwrap_or_default(),
+        sensitive: row.sensitive,
+        spoiler_text: row.spoiler_text,
+        emojis: serde_json::from_value(row.emojis).unwrap_or_default(),
         reason,
     }
+}
+
+/// A post's author page, preferring the author's own instance.
+fn account_url(acct: &str, fallback_host: &str) -> String {
+    acct.split_once('@').map_or_else(
+        || format!("https://{fallback_host}/@{acct}"),
+        |(user, host)| format!("https://{host}/@{user}"),
+    )
 }
 
 /// Age of a post in hours, never negative.

@@ -28,6 +28,11 @@ docker run --rm \
   rust:1-bookworm \
   cargo build --release --locked --bins --target-dir /src/recommender/target-bookworm
 
+echo "==> stopping units before replacing the binaries"
+for role in feeds calculator; do
+  ssh "${HOST}" "pct exec ${VMID} -- systemctl stop nodus-${role}"
+done
+
 echo "==> pushing binaries to ${HOST} container ${VMID}"
 scp -q "${ROOT}/recommender/target-bookworm/release/nodus-feeds" \
        "${ROOT}/recommender/target-bookworm/release/nodus-calculator" \

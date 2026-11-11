@@ -203,6 +203,34 @@ pub async fn record_engagement(
     Ok(())
 }
 
+/// Store the avatar an account currently advertises.
+///
+/// Public statuses carry the author's avatar, so the status sweep can keep the
+/// account row current without a second account request. An empty value is ignored:
+/// a partial instance response must not erase a known avatar.
+///
+/// # Errors
+///
+/// Propagates [`sqlx::Error`].
+pub async fn set_avatar(
+    pool: &PgPool,
+    account_id: i64,
+    avatar_url: &str,
+) -> Result<(), sqlx::Error> {
+    if avatar_url.trim().is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "UPDATE account SET avatar_url = $2, updated_at = now() \
+         WHERE id = $1 AND coalesce(avatar_url, '') <> $2",
+    )
+    .bind(account_id)
+    .bind(avatar_url)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Resolve local ids for a batch of instance accounts.
 ///
 /// The crawl upserts accounts and then needs their local ids for `follow_edge`; one

@@ -33,6 +33,11 @@ pub struct PostCandidate {
     pub account_avatar_url: Option<String>,
     pub account_followers_count: i32,
     pub instance_host: String,
+    pub url: Option<String>,
+    pub media: Value,
+    pub sensitive: bool,
+    pub spoiler_text: String,
+    pub emojis: Value,
 }
 
 /// Post candidates for one user, strongest affinity first.
@@ -70,7 +75,12 @@ pub async fn candidates(
             a.display_name                                         AS account_display_name,
             a.avatar_url                                           AS account_avatar_url,
             a.followers_count                                      AS account_followers_count,
-            a.instance_host::text                                  AS instance_host
+            a.instance_host::text                                  AS instance_host,
+            s.url,
+            coalesce(s.media, '[]'::jsonb)                          AS media,
+            s.sensitive,
+            coalesce(s.spoiler_text, '')                           AS spoiler_text,
+            coalesce(s.emojis, '[]'::jsonb)                         AS emojis
         FROM account_affinity af
         JOIN account a ON a.id = af.account_id
         JOIN status s ON s.account_id = af.account_id
@@ -141,7 +151,12 @@ pub async fn fallback_candidates(
             a.display_name                                         AS account_display_name,
             a.avatar_url                                           AS account_avatar_url,
             a.followers_count                                      AS account_followers_count,
-            a.instance_host::text                                  AS instance_host
+            a.instance_host::text                                  AS instance_host,
+            s.url,
+            coalesce(s.media, '[]'::jsonb)                          AS media,
+            s.sensitive,
+            coalesce(s.spoiler_text, '')                           AS spoiler_text,
+            coalesce(s.emojis, '[]'::jsonb)                         AS emojis
         FROM status s
         JOIN account a ON a.id = s.account_id
         JOIN me ON true
@@ -240,6 +255,11 @@ pub struct SnapshotPost {
     pub reblogs_count: i32,
     pub replies_count: i32,
     pub instance_host: String,
+    pub url: Option<String>,
+    pub media: Value,
+    pub sensitive: bool,
+    pub spoiler_text: String,
+    pub emojis: Value,
 }
 
 /// Reads a page of an existing post snapshot.
@@ -265,7 +285,12 @@ pub async fn page(
             s.favourites_count,
             s.reblogs_count,
             s.replies_count,
-            a.instance_host::text                                  AS instance_host
+            a.instance_host::text                                  AS instance_host,
+            s.url,
+            coalesce(s.media, '[]'::jsonb)                          AS media,
+            s.sensitive,
+            coalesce(s.spoiler_text, '')                           AS spoiler_text,
+            coalesce(s.emojis, '[]'::jsonb)                         AS emojis
         FROM recommendation_item ri
         JOIN status s ON s.id = ri.status_id
         JOIN account a ON a.id = s.account_id

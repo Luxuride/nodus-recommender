@@ -11,6 +11,8 @@
 //! [`upsert_many`] filters the same set in Rust so a caller bug produces no rows
 //! instead of a constraint violation that poisons the whole page.
 
+use nodus_shared::{PostEmoji, PostMedia};
+use serde_json::Value;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 
@@ -40,6 +42,16 @@ pub struct NewStatus {
     pub language: Option<String>,
     /// When the status was published.
     pub published_at: OffsetDateTime,
+    /// Permalink on the instance, when it has one.
+    pub url: Option<String>,
+    /// Attachments, in display order.
+    pub media: Vec<PostMedia>,
+    /// Whether the media should stay behind a click.
+    pub sensitive: bool,
+    /// Content warning, plain text.
+    pub spoiler_text: String,
+    /// Custom emoji used by the body.
+    pub emojis: Vec<PostEmoji>,
 }
 
 /// Insert or refresh a batch of statuses.
@@ -76,19 +88,39 @@ pub async fn upsert_many(pool: &PgPool, statuses: &[NewStatus]) -> Result<u64, s
     let replies: Vec<i32> = retained.iter().map(|s| s.replies_count).collect();
     let languages: Vec<Option<String>> = retained.iter().map(|s| s.language.clone()).collect();
     let published: Vec<OffsetDateTime> = retained.iter().map(|s| s.published_at).collect();
+    let urls: Vec<Option<String>> = retained.iter().map(|s| s.url.clone()).collect();
+    let media: Vec<Value> = retained
+        .iter()
+        .map(|s| serde_json::to_value(&s.media).unwrap_or_else(|_| Value::Array(Vec::new())))
+        .collect();
+    let sensitives: Vec<bool> = retained.iter().map(|s| s.sensitive).collect();
+    let spoilers: Vec<String> = retained.iter().map(|s| s.spoiler_text.clone()).collect();
+    let emojis: Vec<Value> = retained
+        .iter()
+        .map(|s| serde_json::to_value(&s.emojis).unwrap_or_else(|_| Value::Array(Vec::new())))
+        .collect();
 
     let result = sqlx::query(
         "INSERT INTO status (instance_host, mastodon_id, account_id, content, visibility, \
-             favourites_count, reblogs_count, replies_count, language, created_at) \
+             favourites_count, reblogs_count, replies_count, language, created_at, url, \
+             media, sensitive, spoiler_text, emojis) \
          SELECT host, mastodon_id, account_id, content, visibility, favourites_count, \
-                reblogs_count, replies_count, language, created_at \
+                reblogs_count, replies_count, language, created_at, url, media, sensitive, \
+                spoiler_text, emojis \
            FROM UNNEST($1::text[], $2::bigint[], $3::bigint[], $4::text[], $5::text[], \
-                       $6::int[], $7::int[], $8::int[], $9::text[], $10::timestamptz[]) \
+                       $6::int[], $7::int[], $8::int[], $9::text[], $10::timestamptz[], \
+                       $11::text[], $12::jsonb[], $13::bool[], $14::text[], $15::jsonb[]) \
                AS page (host, mastodon_id, account_id, content, visibility, favourites_count, \
-                        reblogs_count, replies_count, language, created_at) \
+                        reblogs_count, replies_count, language, created_at, url, media, \
+                        sensitive, spoiler_text, emojis) \
           WHERE visibility IN ('public', 'unlisted') \
          ON CONFLICT (instance_host, mastodon_id) DO UPDATE SET \
              content = EXCLUDED.content, \
+             url = EXCLUDED.url, \
+             media = EXCLUDED.media, \
+             sensitive = EXCLUDED.sensitive, \
+             spoiler_text = EXCLUDED.spoiler_text, \
+             emojis = EXCLUDED.emojis, \
              favourites_count = EXCLUDED.favourites_count, \
              reblogs_count = EXCLUDED.reblogs_count, \
              replies_count = EXCLUDED.replies_count, \
@@ -105,6 +137,11 @@ pub async fn upsert_many(pool: &PgPool, statuses: &[NewStatus]) -> Result<u64, s
     .bind(&replies)
     .bind(&languages)
     .bind(&published)
+    .bind(&urls)
+    .bind(&media)
+    .bind(&sensitives)
+    .bind(&spoilers)
+    .bind(&emojis)
     .execute(pool)
     .await?;
     Ok(result.rows_affected())
