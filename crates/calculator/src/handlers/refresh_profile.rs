@@ -73,6 +73,8 @@ pub struct RefreshProfile {
 struct Target {
     instance_host: String,
     mastodon_id: i64,
+    remote_id: Option<String>,
+    acct: String,
     follows_private: bool,
 }
 
@@ -86,7 +88,7 @@ impl RefreshProfile {
     /// Reads the account, or `None` when it has been deleted since the job was queued.
     async fn target(&self, account_id: i64) -> Result<Option<Target>, sqlx::Error> {
         sqlx::query_as::<_, Target>(
-            "SELECT instance_host, mastodon_id, follows_private FROM account WHERE id = $1",
+            "SELECT instance_host, mastodon_id, remote_id, acct, follows_private FROM account WHERE id = $1",
         )
         .bind(account_id)
         .fetch_optional(&self.pool)
@@ -95,37 +97,47 @@ impl RefreshProfile {
 
     /// One page of the subject's follow list, as local edge targets.
     async fn crawl(&self, target: &Target, account_id: i64) -> Result<Vec<i64>, JobError> {
-        let Some(pooled) = users::pick_token(&self.pool, &target.instance_host, &[])
-            .await
-            .map_err(|error| database(&error))?
-        else {
-            // No token on this host means no crawl this minute, not a broken job.
-            return Err(JobError::retry(
-                BACKOFF,
-                format!(
-                    "no token is available for `{}`; the profile crawl waits",
-                    target.instance_host
-                ),
-            ));
+        let origin = target.acct.split_once('@').map(|(_, host)| host);
+        let (host, secret, me_id) = match origin {
+            Some(host) => (
+                host.to_owned(),
+                String::new(),
+                target.remote_id.clone().unwrap_or_else(|| target.mastodon_id.to_string()),
+            ),
+            None => {
+                let Some(pooled) = users::pick_token(&self.pool, &target.instance_host, &[])
+                    .await
+                    .map_err(|error| database(&error))?
+                else {
+                    return Err(JobError::retry(
+                        BACKOFF,
+                        format!(
+                            "no token is available for `{}`; the profile crawl waits",
+                            target.instance_host
+                        ),
+                    ));
+                };
+                let secret = self
+                    .config
+                    .sealer
+                    .open(&pooled.access_token_enc)
+                    .map_err(|error| {
+                        JobError::retry(
+                            BACKOFF,
+                            format!("a pooled token cannot be decrypted: {error}"),
+                        )
+                    })?
+                    .to_string();
+                (target.instance_host.clone(), secret, target.mastodon_id.to_string())
+            }
         };
 
-        let secret = self
-            .config
-            .sealer
-            .open(&pooled.access_token_enc)
-            .map_err(|error| {
-                JobError::permanent(format!("the pooled token cannot be decrypted: {error}"))
-            })?;
-
-        let authority = format!("{}://{}", self.config.scheme, target.instance_host);
+        let authority = format!("{}://{host}", self.config.scheme);
         let instance = Instance::parse(&authority).map_err(|error| {
-            JobError::permanent(format!(
-                "`{}` is not a usable instance: {error}",
-                target.instance_host
-            ))
+            JobError::permanent(format!("`{host}` is not a usable instance: {error}"))
         })?;
         let api = HttpInstance::new(&instance, secret);
-        let me = LocalId(target.mastodon_id.to_string());
+        let me = LocalId(me_id);
 
         let page = match api
             .following(&me, PageParams::first(self.config.page_size))
@@ -164,7 +176,7 @@ impl RefreshProfile {
                     }
                 };
                 Some(NewAccount {
-                    instance_host: target.instance_host.clone(),
+                    instance_host: host.clone(),
                     mastodon_id,
                     remote_id: None,
                     acct: account.acct.clone(),

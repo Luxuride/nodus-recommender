@@ -5,6 +5,7 @@
 //! [`router`] would silently lose the CORS headers, which for a CDN-hosted client is
 //! indistinguishable from an outage.
 
+pub mod browse;
 pub mod events;
 pub mod feed;
 pub mod feedback;
@@ -41,6 +42,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/feed/{feed_id}/refresh",
             axum::routing::post(feed::refresh::refresh),
         )
+        .route("/api/v1/browse", axum::routing::post(browse::browse))
         .route("/api/v1/events", axum::routing::post(events::collect))
         .route(
             "/api/v1/feedback/not-interested",
