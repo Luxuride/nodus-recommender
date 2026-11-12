@@ -771,7 +771,8 @@ pub async fn personal_candidates(
 }
 
 /// Text the reader has already signalled interest in: posts they boosted or
-/// replied through the recommender, plus recent posts from accounts they follow.
+/// replied through the recommender, recent posts from accounts they follow, and
+/// posts from authors they favourited or boosted.
 /// The caller turns these into a multi-interest vector profile.
 pub async fn interest_texts(
     pool: &PgPool,
@@ -808,10 +809,23 @@ pub async fn interest_texts(
               AND btrim(coalesce(status.content, '')) <> ''
             ORDER BY status.created_at DESC
             LIMIT $2
+        ),
+        favourited AS (
+            SELECT status.content
+            FROM engagement_edge AS edge
+            JOIN status ON status.account_id = edge.target_id
+            WHERE edge.actor_id = (SELECT account_id FROM me)
+              AND edge.kind IN ('favourite', 'reblog')
+              AND status.created_at > now() - interval '90 days'
+              AND btrim(coalesce(status.content, '')) <> ''
+            ORDER BY edge.last_seen_at DESC
+            LIMIT $2
         )
         SELECT content FROM acted
         UNION ALL
         SELECT content FROM followed
+        UNION ALL
+        SELECT content FROM favourited
         LIMIT $2
         ",
     )

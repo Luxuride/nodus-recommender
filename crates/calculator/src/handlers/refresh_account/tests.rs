@@ -42,6 +42,8 @@ fn status(id: &str, visibility: Visibility) -> Status {
         id: id.to_owned(),
         created_at: "2026-11-06T21:00:00.000Z".to_owned(),
         content: "<p>hello</p>".to_owned(),
+        content_format: None,
+        content_source: None,
         visibility,
         account: author(),
         favourites_count: 3,
