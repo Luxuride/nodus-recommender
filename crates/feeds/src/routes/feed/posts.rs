@@ -200,7 +200,7 @@ pub async fn posts(
         .map(|((item_id, _), (_, candidate))| PostItem {
             item_id,
             status_id: candidate.status_id.to_string(),
-            status_remote_id: candidate.status_remote_id.to_string(),
+            status_remote_id: candidate.status_remote_id.clone(),
             account_remote_id: candidate.account_remote_id.clone().unwrap_or_default(),
             account_acct: candidate.account_acct.clone(),
             account_display_name: candidate
@@ -318,7 +318,7 @@ fn post_item(row: feed::posts::SnapshotPost) -> PostItem {
     PostItem {
         item_id: row.id,
         status_id: row.status_id.to_string(),
-        status_remote_id: row.status_remote_id.to_string(),
+        status_remote_id: row.status_remote_id,
         account_remote_id: row.account_remote_id.clone().unwrap_or_default(),
         account_acct: row.account_acct.clone(),
         account_display_name: row

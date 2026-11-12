@@ -258,11 +258,8 @@ pub async fn sync_callback(
     if !stored {
         return Err(ApiError::NotFound);
     }
-    nodus_store::jobs::enqueue(
-        &state.pool,
-        &nodus_store::jobs::NewJob::sync_user(&user_id),
-    )
-    .await?;
+    nodus_store::jobs::enqueue(&state.pool, &nodus_store::jobs::NewJob::sync_user(&user_id))
+        .await?;
     tracing::info!(%host, "background sync authorized");
     let origin = state
         .config

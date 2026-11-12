@@ -1277,6 +1277,7 @@ dependencies = [
  "nodus-cache",
  "nodus-core",
  "nodus-instance",
+ "nodus-instance-misskey",
  "nodus-shared",
  "nodus-store",
  "serde",
@@ -1341,6 +1342,16 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "url",
+]
+
+[[package]]
+name = "nodus-instance-misskey"
+version = "0.1.0"
+dependencies = [
+ "nodus-instance",
+ "serde",
+ "serde_json",
  "url",
 ]
 

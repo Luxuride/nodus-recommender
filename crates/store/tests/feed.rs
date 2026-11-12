@@ -16,6 +16,7 @@ fn new_account(host: &str, mastodon_id: i64, acct: &str) -> NewAccount {
     NewAccount {
         instance_host: host.to_owned(),
         mastodon_id,
+        remote_id: None,
         acct: acct.to_owned(),
         display_name: None,
         followers_count: 0,

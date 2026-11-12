@@ -30,6 +30,7 @@ async fn seed_user(pool: &PgPool, host: &str, mastodon_id: i64, acct: &str) -> (
         &[NewAccount {
             instance_host: host.to_owned(),
             mastodon_id,
+            remote_id: None,
             acct: acct.to_owned(),
             display_name: None,
             followers_count: 0,
@@ -57,6 +58,7 @@ async fn seed_account(pool: &PgPool, host: &str, mastodon_id: i64, acct: &str) -
         &[NewAccount {
             instance_host: host.to_owned(),
             mastodon_id,
+            remote_id: None,
             acct: acct.to_owned(),
             display_name: None,
             followers_count: 0,

@@ -107,7 +107,10 @@ impl RefreshProfile {
             Some(host) => (
                 host.to_owned(),
                 String::new(),
-                target.remote_id.clone().unwrap_or_else(|| target.mastodon_id.to_string()),
+                target
+                    .remote_id
+                    .clone()
+                    .unwrap_or_else(|| target.mastodon_id.to_string()),
             ),
             None => {
                 let Some(pooled) = users::pick_token(&self.pool, &target.instance_host, &[])
@@ -133,7 +136,11 @@ impl RefreshProfile {
                         )
                     })?
                     .to_string();
-                (target.instance_host.clone(), secret, target.mastodon_id.to_string())
+                (
+                    target.instance_host.clone(),
+                    secret,
+                    target.mastodon_id.to_string(),
+                )
             }
         };
 

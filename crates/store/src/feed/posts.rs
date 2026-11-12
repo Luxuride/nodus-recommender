@@ -20,7 +20,7 @@ use uuid::Uuid;
 #[derive(Debug, sqlx::FromRow)]
 pub struct PostCandidate {
     pub status_id: i64,
-    pub status_remote_id: i64,
+    pub status_remote_id: String,
     pub account_id: i64,
     pub account_remote_id: Option<String>,
     pub affinity: f64,
@@ -67,7 +67,7 @@ pub async fn candidates(
         )
         SELECT
             s.id                                                   AS status_id,
-            s.mastodon_id                                           AS status_remote_id,
+            coalesce(s.remote_id, s.mastodon_id::text)                AS status_remote_id,
             s.account_id                                           AS account_id,
             af.affinity::double precision                          AS affinity,
             coalesce(s.content, '')                                AS content,
@@ -148,7 +148,7 @@ pub async fn fallback_candidates(
         )
         SELECT
             s.id                                                   AS status_id,
-            s.mastodon_id                                           AS status_remote_id,
+            coalesce(s.remote_id, s.mastodon_id::text)                AS status_remote_id,
             s.account_id                                           AS account_id,
             0.5::double precision                                  AS affinity,
             coalesce(s.content, '')                                AS content,
@@ -261,7 +261,7 @@ pub struct SnapshotPost {
     pub score: f32,
     pub reason: Value,
     pub status_id: i64,
-    pub status_remote_id: i64,
+    pub status_remote_id: String,
     pub account_acct: String,
     pub account_remote_id: Option<String>,
     pub account_display_name: Option<String>,
@@ -296,7 +296,7 @@ pub async fn page(
             ri.score                                               AS score,
             ri.reason                                              AS reason,
             ri.status_id                                           AS status_id,
-            s.mastodon_id                                          AS status_remote_id,
+            coalesce(s.remote_id, s.mastodon_id::text)               AS status_remote_id,
             a.remote_id                                             AS account_remote_id,
             a.acct::text                                           AS account_acct,
             a.display_name                                         AS account_display_name,
@@ -356,7 +356,7 @@ pub async fn fresh_affinity_candidates(
             WHERE u.id = $1
         )
         SELECT
-            s.id AS status_id, s.mastodon_id AS status_remote_id,
+            s.id AS status_id, coalesce(s.remote_id, s.mastodon_id::text) AS status_remote_id,
             s.account_id AS account_id,
             af.affinity::double precision AS affinity,
             coalesce(s.content, '') AS content,
@@ -426,7 +426,7 @@ pub async fn recent_candidates(
             WHERE u.id = $1
         )
         SELECT
-            s.id AS status_id, s.mastodon_id AS status_remote_id,
+            s.id AS status_id, coalesce(s.remote_id, s.mastodon_id::text) AS status_remote_id,
             s.account_id AS account_id,
             0.25::double precision AS affinity,
             coalesce(s.content, '') AS content,
@@ -526,7 +526,7 @@ pub async fn exploration_candidates(
             GROUP BY account_id
         )
         SELECT
-            s.id AS status_id, s.mastodon_id AS status_remote_id,
+            s.id AS status_id, coalesce(s.remote_id, s.mastodon_id::text) AS status_remote_id,
             s.account_id AS account_id,
             GREATEST(0.16, 0.5 - 0.08 * hop.depth)::double precision AS affinity,
             coalesce(s.content, '') AS content,
@@ -601,7 +601,7 @@ pub async fn trending_candidates(
             WHERE u.id = $1
         )
         SELECT
-            s.id AS status_id, s.mastodon_id AS status_remote_id,
+            s.id AS status_id, coalesce(s.remote_id, s.mastodon_id::text) AS status_remote_id,
             s.account_id AS account_id,
             0.3::double precision AS affinity,
             coalesce(s.content, '') AS content,

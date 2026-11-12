@@ -43,11 +43,9 @@ pub async fn browse(
     State(state): State<AppState>,
     Json(body): Json<Browse>,
 ) -> Result<Json<Receipt>, ApiError> {
-    let id = body
-        .id
-        .trim()
-        .parse::<i64>()
-        .map_err(|error| ApiError::bad_request("bad_target", format!("`{}` is not an id: {error}", body.id)))?;
+    let id = body.id.trim().parse::<i64>().map_err(|error| {
+        ApiError::bad_request("bad_target", format!("`{}` is not an id: {error}", body.id))
+    })?;
     if body.host.trim().is_empty() {
         return Err(ApiError::bad_request("bad_target", "the host is empty"));
     }
@@ -55,9 +53,7 @@ pub async fn browse(
     users::ensure_instance(&state.pool, &host).await?;
 
     let account_id = match body.kind.as_str() {
-        "profile" => Some(
-            ensure_account(&state, &host, id, body.acct.as_deref()).await?,
-        ),
+        "profile" => Some(ensure_account(&state, &host, id, body.acct.as_deref()).await?),
         "status" => {
             let found: Option<i64> = sqlx::query_scalar(
                 "SELECT account_id FROM status WHERE instance_host = $1 AND mastodon_id = $2",

@@ -7,9 +7,10 @@
 
 use std::time::Duration;
 
-use nodus_instance::HttpInstance;
 use nodus_instance::model::{LocalId, MediaAttachment, MediaKind, PageParams, Status, Visibility};
 use nodus_instance::{Error as InstanceError, Instance, InstanceApi};
+use nodus_instance::{HttpInstance, ReqwestTransport};
+use nodus_instance_misskey::MisskeyInstance;
 use nodus_shared::{PostEmoji, PostMedia};
 use nodus_store::accounts;
 use nodus_store::models::Account;
@@ -124,12 +125,24 @@ async fn refresh_remote(
         .await
         .map_err(|error| database(&error))?;
     let api = public_transport(origin, config)?;
-    let remote = api.account_lookup(user).await.map_err(classify)?;
+    let (remote, batch, avatar) = match api.account_lookup(user).await {
+        Ok(remote) => {
+            let author = LocalId(remote.id.clone());
+            let (batch, avatar) = walk(&api, &author, origin, account.id, config).await?;
+            (remote, batch, avatar)
+        }
+        Err(InstanceError::Status { status: 404, .. }) => {
+            let api = misskey_transport(origin, config)?;
+            let remote = api.account_lookup(user).await.map_err(classify)?;
+            let author = LocalId(remote.id.clone());
+            let (batch, avatar) = walk(&api, &author, origin, account.id, config).await?;
+            (remote, batch, avatar)
+        }
+        Err(error) => return Err(classify(error)),
+    };
     accounts::set_remote_id(pool, account.id, &remote.id)
         .await
         .map_err(|error| database(&error))?;
-    let author = LocalId(remote.id.clone());
-    let (batch, avatar) = walk(&api, &author, origin, account.id, config).await?;
 
     let mut fresh = Vec::with_capacity(batch.len());
     for row in &batch {
@@ -180,6 +193,22 @@ pub(crate) fn public_transport(
     Ok(HttpInstance::new(&instance, String::new()))
 }
 
+/// Build the Misskey client for an origin that is not Mastodon.
+pub(crate) fn misskey_transport(
+    host: &str,
+    config: &RefreshConfig,
+) -> Result<MisskeyInstance<ReqwestTransport>, JobError> {
+    let authority = format!("{}://{host}", config.scheme);
+    let instance = Instance::parse(&authority).map_err(|error| {
+        JobError::permanent(format!("`{host}` is not a usable instance: {error}"))
+    })?;
+    Ok(MisskeyInstance::with_transport(
+        &instance,
+        String::new(),
+        ReqwestTransport::new(),
+    ))
+}
+
 pub(crate) fn transport(
     host: &str,
     sealed: &[u8],
@@ -204,13 +233,16 @@ pub(crate) fn transport(
 ///
 /// The sleep is between pages rather than before the first one: a fresh job that
 /// has not spent a request should not wait for a budget it has not touched.
-async fn walk(
-    api: &HttpInstance,
+async fn walk<I>(
+    api: &I,
     author: &LocalId,
     instance_host: &str,
     account_id: i64,
     config: &RefreshConfig,
-) -> Result<(Vec<NewStatus>, Option<String>), JobError> {
+) -> Result<(Vec<NewStatus>, Option<String>), JobError>
+where
+    I: InstanceApi<Error = InstanceError>,
+{
     let mut params = PageParams::first(config.page_size);
     let mut batch = Vec::new();
     let mut avatar = None;
@@ -266,12 +298,16 @@ pub(crate) fn map_status(
     if !matches!(status.visibility, Visibility::Public | Visibility::Unlisted) {
         return None;
     }
-    let mastodon_id = status.id.parse::<i64>().ok()?;
+    let remote_id = status.id.clone();
+    let mastodon_id = remote_id
+        .parse::<i64>()
+        .unwrap_or_else(|_| stable_id(instance_host, &remote_id));
     let published_at = OffsetDateTime::parse(&status.created_at, &Rfc3339).ok()?;
 
     Some(NewStatus {
         instance_host: instance_host.to_owned(),
         mastodon_id,
+        remote_id,
         account_id,
         content: status.content.clone(),
         visibility: status.visibility.as_str().to_owned(),
@@ -286,6 +322,18 @@ pub(crate) fn map_status(
         spoiler_text: status.spoiler_text.clone(),
         emojis: status.emojis.iter().map(post_emoji).collect(),
     })
+}
+
+/// A stable signed id for an origin whose ids are not integers.
+///
+/// FNV-1a over `host|id`; the top bit is cleared so the value fits `bigint`.
+fn stable_id(host: &str, id: &str) -> i64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in host.bytes().chain(std::iter::once(b'|')).chain(id.bytes()) {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    i64::try_from(hash & 0x7fff_ffff_ffff_ffff).unwrap_or(i64::MAX)
 }
 
 /// The wire shape keeps Mastodon's `type` spelling between the two structs.

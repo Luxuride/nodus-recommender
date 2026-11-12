@@ -24,8 +24,11 @@ use time::OffsetDateTime;
 pub struct NewStatus {
     /// The instance the status was read from.
     pub instance_host: String,
-    /// Instance-local status id.
+    /// Instance-local status id. Opaque ids from non-Mastodon origins are hashed
+    /// into this column; `remote_id` keeps the exact source id.
     pub mastodon_id: i64,
+    /// The id exactly as the origin printed it.
+    pub remote_id: String,
     /// Local `account.id` of the author.
     pub account_id: i64,
     /// HTML content, as the instance returned it.
@@ -80,6 +83,7 @@ pub async fn upsert_many(pool: &PgPool, statuses: &[NewStatus]) -> Result<u64, s
 
     let hosts: Vec<String> = retained.iter().map(|s| s.instance_host.clone()).collect();
     let ids: Vec<i64> = retained.iter().map(|s| s.mastodon_id).collect();
+    let remote_ids: Vec<String> = retained.iter().map(|s| s.remote_id.clone()).collect();
     let accounts: Vec<i64> = retained.iter().map(|s| s.account_id).collect();
     let contents: Vec<String> = retained.iter().map(|s| s.content.clone()).collect();
     let visibilities: Vec<String> = retained.iter().map(|s| s.visibility.clone()).collect();
@@ -101,20 +105,20 @@ pub async fn upsert_many(pool: &PgPool, statuses: &[NewStatus]) -> Result<u64, s
         .collect();
 
     let result = sqlx::query(
-        "INSERT INTO status (instance_host, mastodon_id, account_id, content, visibility, \
+        "INSERT INTO status (instance_host, mastodon_id, remote_id, account_id, content, visibility, \
              favourites_count, reblogs_count, replies_count, language, created_at, url, \
              media, sensitive, spoiler_text, emojis) \
-         SELECT host, mastodon_id, account_id, content, visibility, favourites_count, \
+         SELECT host, mastodon_id, remote_id, account_id, content, visibility, favourites_count, \
                 reblogs_count, replies_count, language, created_at, url, media, sensitive, \
                 spoiler_text, emojis \
-           FROM UNNEST($1::text[], $2::bigint[], $3::bigint[], $4::text[], $5::text[], \
-                       $6::int[], $7::int[], $8::int[], $9::text[], $10::timestamptz[], \
-                       $11::text[], $12::jsonb[], $13::bool[], $14::text[], $15::jsonb[]) \
-               AS page (host, mastodon_id, account_id, content, visibility, favourites_count, \
-                        reblogs_count, replies_count, language, created_at, url, media, \
-                        sensitive, spoiler_text, emojis) \
+           FROM UNNEST($1::text[], $2::bigint[], $3::text[], $4::bigint[], $5::text[], $6::text[], \
+                       $7::int[], $8::int[], $9::int[], $10::text[], $11::timestamptz[], \
+                       $12::text[], $13::jsonb[], $14::bool[], $15::text[], $16::jsonb[]) \
+               AS page (host, mastodon_id, remote_id, account_id, content, visibility, \
+                        favourites_count, reblogs_count, replies_count, language, created_at, \
+                        url, media, sensitive, spoiler_text, emojis) \
           WHERE visibility IN ('public', 'unlisted') \
-         ON CONFLICT (instance_host, mastodon_id) DO UPDATE SET \
+         ON CONFLICT (instance_host, remote_id) DO UPDATE SET \
              content = EXCLUDED.content, \
              url = EXCLUDED.url, \
              media = EXCLUDED.media, \
@@ -129,6 +133,7 @@ pub async fn upsert_many(pool: &PgPool, statuses: &[NewStatus]) -> Result<u64, s
     )
     .bind(&hosts)
     .bind(&ids)
+    .bind(&remote_ids)
     .bind(&accounts)
     .bind(&contents)
     .bind(&visibilities)

@@ -96,5 +96,7 @@ fn an_unparseable_numeric_field_falls_back_instead_of_panicking() {
     assert_eq!(mapped.visibility, "unlisted");
 
     let unnamed = status("not-a-number", Visibility::Public);
-    assert!(map_status("example.social", 7, &unnamed).is_none());
+    let mapped = map_status("example.social", 7, &unnamed).expect("opaque ids are hashed");
+    assert_eq!(mapped.remote_id, "not-a-number");
+    assert_ne!(mapped.mastodon_id, 0);
 }

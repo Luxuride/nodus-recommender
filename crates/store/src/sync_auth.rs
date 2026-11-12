@@ -103,10 +103,7 @@ pub async fn start(
 /// # Errors
 ///
 /// Database failures.
-pub async fn take(
-    pool: &PgPool,
-    state: &str,
-) -> Result<Option<(uuid::Uuid, String)>, sqlx::Error> {
+pub async fn take(pool: &PgPool, state: &str) -> Result<Option<(uuid::Uuid, String)>, sqlx::Error> {
     sqlx::query_as::<_, (uuid::Uuid, String)>(
         "DELETE FROM sync_authorization WHERE state = $1 AND expires_at > now() \
          RETURNING user_id, instance_host",
