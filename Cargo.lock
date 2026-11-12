@@ -1275,9 +1275,10 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "nodus-cache",
+ "nodus-client-core",
  "nodus-core",
- "nodus-instance",
- "nodus-instance-misskey",
+ "nodus-mastodon",
+ "nodus-misskey",
  "nodus-shared",
  "nodus-store",
  "serde",
@@ -1290,6 +1291,16 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wiremock",
+]
+
+[[package]]
+name = "nodus-client-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]
@@ -1335,21 +1346,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "nodus-instance"
+name = "nodus-mastodon"
 version = "0.1.0"
 dependencies = [
+ "nodus-client-core",
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
  "url",
 ]
 
 [[package]]
-name = "nodus-instance-misskey"
+name = "nodus-misskey"
 version = "0.1.0"
 dependencies = [
- "nodus-instance",
+ "nodus-client-core",
  "serde",
  "serde_json",
  "url",

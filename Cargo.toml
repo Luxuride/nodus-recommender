@@ -22,8 +22,9 @@ repository = "https://github.com/nodus-social/nodus-recommender"
 # exact combination. See docs/08-sdk.md.
 [workspace.dependencies]
 nodus-shared = { path = "../sdk/crates/shared", version = "0.1.0" }
-nodus-instance = { path = "../sdk/crates/instance", version = "0.1.0", default-features = false }
-nodus-instance-misskey = { path = "../sdk/crates/instance-misskey", version = "0.1.0", default-features = false }
+nodus-client-core = { path = "../sdk/crates/client-core", version = "0.1.0", default-features = false }
+nodus-mastodon = { path = "../sdk/crates/mastodon", version = "0.1.0", default-features = false }
+nodus-misskey = { path = "../sdk/crates/misskey", version = "0.1.0", default-features = false }
 
 nodus-core = { path = "crates/core", version = "0.1.0" }
 nodus-store = { path = "crates/store", version = "0.1.0" }

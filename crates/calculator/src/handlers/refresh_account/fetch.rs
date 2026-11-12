@@ -7,10 +7,12 @@
 
 use std::time::Duration;
 
-use nodus_instance::model::{LocalId, MediaAttachment, MediaKind, PageParams, Status, Visibility};
-use nodus_instance::{Error as InstanceError, Instance, InstanceApi};
-use nodus_instance::{HttpInstance, ReqwestTransport};
-use nodus_instance_misskey::MisskeyInstance;
+use nodus_client_core::model::{
+    LocalId, MediaAttachment, MediaKind, PageParams, Status, Visibility,
+};
+use nodus_client_core::{Error as InstanceError, Instance, InstanceApi};
+use nodus_mastodon::{HttpInstance, ReqwestTransport};
+use nodus_misskey::MisskeyInstance;
 use nodus_shared::{PostEmoji, PostMedia};
 use nodus_store::accounts;
 use nodus_store::models::Account;
@@ -357,7 +359,7 @@ fn post_media(media: &MediaAttachment) -> PostMedia {
     }
 }
 
-fn post_emoji(emoji: &nodus_instance::model::CustomEmoji) -> PostEmoji {
+fn post_emoji(emoji: &nodus_client_core::model::CustomEmoji) -> PostEmoji {
     PostEmoji {
         shortcode: emoji.shortcode.clone(),
         url: emoji.url.clone(),

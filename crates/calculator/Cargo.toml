@@ -12,9 +12,10 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+nodus-client-core = { workspace = true }
 nodus-core = { workspace = true }
-nodus-instance = { workspace = true, features = ["native"] }
-nodus-instance-misskey = { workspace = true }
+nodus-mastodon = { workspace = true, features = ["native"] }
+nodus-misskey = { workspace = true }
 nodus-shared = { workspace = true }
 nodus-store = { workspace = true }
 nodus-cache = { workspace = true, features = ["redis"] }

@@ -4,7 +4,7 @@
 //! loop over [`map_status`], so pinning the mapping pins the only rule that can
 //! silently ingest a post we must not keep.
 
-use nodus_instance::model::{Account, Status, Visibility};
+use nodus_client_core::model::{Account, Status, Visibility};
 
 use super::fetch::map_status;
 

@@ -10,8 +10,8 @@ use core::pin::Pin;
 use std::collections::HashSet;
 use std::time::Duration;
 
-use nodus_instance::InstanceApi;
-use nodus_instance::model::{PageParams, StreamKind};
+use nodus_client_core::InstanceApi;
+use nodus_client_core::model::{PageParams, StreamKind};
 use nodus_store::models::{Job, NewAccount};
 use nodus_store::{accounts, statuses, users};
 use sqlx::PgPool;
@@ -126,7 +126,7 @@ impl Handler for RefreshPublic {
     }
 }
 
-fn account_row(host: &str, account: &nodus_instance::model::Account) -> Option<NewAccount> {
+fn account_row(host: &str, account: &nodus_client_core::model::Account) -> Option<NewAccount> {
     let mastodon_id = account.id.parse::<i64>().ok()?;
     Some(NewAccount {
         instance_host: host.to_owned(),
@@ -147,16 +147,16 @@ fn database(error: &sqlx::Error) -> JobError {
     JobError::retry(Duration::from_secs(60), format!("database: {error}"))
 }
 
-fn classify(error: nodus_instance::Error) -> JobError {
+fn classify(error: nodus_client_core::Error) -> JobError {
     match error {
-        nodus_instance::Error::RateLimited { retry_after_s } => JobError::retry(
+        nodus_client_core::Error::RateLimited { retry_after_s } => JobError::retry(
             Duration::from_secs(u64::from(retry_after_s.max(1))),
             format!("instance rate limit: retry after {retry_after_s}s"),
         ),
-        nodus_instance::Error::Unauthorized => {
+        nodus_client_core::Error::Unauthorized => {
             JobError::permanent("401 from the instance: token revoked or scope removed")
         }
-        nodus_instance::Error::Transport(message) => {
+        nodus_client_core::Error::Transport(message) => {
             JobError::retry(Duration::from_secs(60), format!("transport: {message}"))
         }
         other => JobError::retry(

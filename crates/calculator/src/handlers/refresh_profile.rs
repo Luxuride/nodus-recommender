@@ -18,7 +18,7 @@
 //!    fetched on the attempt, so they are not asked again for a week.
 //!
 //! Similarity here is plain cosine over the three public signals, with the weights
-//! [`nodus_core::similarity`] already assumes. It deliberately skips that module's IDF
+//! [`nodus_client_core::similarity`] already assumes. It deliberately skips that module's IDF
 //! weighting: IDF needs a corpus-wide frequency table, and this pass sees one page.
 
 use std::collections::{HashMap, HashSet};
@@ -26,8 +26,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-use nodus_instance::model::{LocalId, PageParams};
-use nodus_instance::{Error as InstanceError, HttpInstance, Instance, InstanceApi, SyncApi};
+use nodus_client_core::model::{LocalId, PageParams};
+use nodus_client_core::{Error as InstanceError, Instance, InstanceApi, SyncApi};
+use nodus_mastodon::HttpInstance;
 use nodus_store::models::{Job, NewAccount};
 use nodus_store::profiles::{self, EdgeKind, EdgeSource, SimilarityRow};
 use nodus_store::{accounts, affinity, users};
@@ -44,7 +45,7 @@ const MAX_SIMILAR: usize = 50;
 const MIN_SIMILARITY: f32 = 0.05;
 /// How many candidates one profile pass may contribute.
 const CANDIDATE_LIMIT: usize = 200;
-/// The weights [`nodus_core::similarity`] uses, minus the signals a crawl cannot see.
+/// The weights [`nodus_client_core::similarity`] uses, minus the signals a crawl cannot see.
 const W_CO_FOLLOW: f32 = 0.55;
 const W_CO_BOOST: f32 = 0.15;
 const W_CO_REPLY: f32 = 0.10;
@@ -125,17 +126,16 @@ impl RefreshProfile {
                         ),
                     ));
                 };
-                let secret = self
-                    .config
-                    .sealer
-                    .open(&pooled.access_token_enc)
-                    .map_err(|error| {
-                        JobError::retry(
-                            BACKOFF,
-                            format!("a pooled token cannot be decrypted: {error}"),
-                        )
-                    })?
-                    .to_string();
+                let secret =
+                    self.config
+                        .sealer
+                        .open(&pooled.access_token_enc)
+                        .map_err(|error| {
+                            JobError::retry(
+                                BACKOFF,
+                                format!("a pooled token cannot be decrypted: {error}"),
+                            )
+                        })?;
                 (
                     target.instance_host.clone(),
                     secret,

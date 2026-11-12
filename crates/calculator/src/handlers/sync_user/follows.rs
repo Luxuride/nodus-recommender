@@ -8,9 +8,9 @@
 
 use std::time::Duration;
 
-use nodus_instance::HttpInstance;
-use nodus_instance::model::{LocalId, PageParams};
-use nodus_instance::{Error as InstanceError, Instance, SyncApi};
+use nodus_client_core::model::{LocalId, PageParams};
+use nodus_client_core::{Error as InstanceError, Instance, SyncApi};
+use nodus_mastodon::HttpInstance;
 use nodus_store::accounts;
 use nodus_store::models::NewAccount;
 use tracing::warn;
