@@ -30,7 +30,7 @@ And for projects built on the open-source code:
 
 | Context | Allowed | Not allowed |
 | --- | --- | --- |
-| Product, repository, crate, binary, service name | `nodus`, `nodus-sdk`, `nodus-feeds` | `mastodon-*`, `Nodus for Mastodon` as a *name*, any spelling variant (`mstdn`, `mastodoon`) |
+| Product, repository, crate, binary, service name | `nodus`, `nodus-client-sdk`, `nodus-feeds` | `mastodon-*`, `Nodus for Mastodon` as a *name*, any spelling variant (`mstdn`, `mastodoon`) |
 | Domain name | `nodus.example` | `mastodon-nodus.com`, `nodus-mastodon.com` (mark in any level of the name) |
 | Prose, docs, marketing | "A recommendation engine for use with Mastodon", "reads the Mastodon API", "compatible with Mastodon 4.2+" | "the Nodus Mastodon client", "Mastodon's official recommender" |
 | Logos and artwork | — | The Mastodon logo, the elephant mark, or anything confusingly similar |
@@ -57,7 +57,7 @@ Before naming a crate, binary, repository, endpoint, feature or folder:
 4. Are we using any Mastodon artwork? Do not; use our own or none.
 
 Existing code is already compliant: the crate prefix is `nodus-`, and the module
-that implements the instance API is `nodus-instance`, not `mastodon`.
+that implements the instance API is `nodus-client-core`, not `mastodon`.
 
 ## Precedent and risk
 
