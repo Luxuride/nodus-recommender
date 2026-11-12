@@ -27,7 +27,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use nodus_instance::model::{LocalId, PageParams};
-use nodus_instance::{Error as InstanceError, HttpInstance, Instance, SyncApi};
+use nodus_instance::{Error as InstanceError, HttpInstance, Instance, InstanceApi, SyncApi};
 use nodus_store::models::{Job, NewAccount};
 use nodus_store::profiles::{self, EdgeKind, EdgeSource, SimilarityRow};
 use nodus_store::{accounts, affinity, users};
@@ -96,6 +96,11 @@ impl RefreshProfile {
     }
 
     /// One page of the subject's follow list, as local edge targets.
+    #[expect(
+        clippy::too_many_lines,
+        clippy::single_match_else,
+        reason = "the origin and pooled-token paths differ in three values and share the rest"
+    )]
     async fn crawl(&self, target: &Target, account_id: i64) -> Result<Vec<i64>, JobError> {
         let origin = target.acct.split_once('@').map(|(_, host)| host);
         let (host, secret, me_id) = match origin {
@@ -164,6 +169,10 @@ impl RefreshProfile {
             }
         };
 
+        let followers = api
+            .account_followers(&me, PageParams::first(self.config.page_size))
+            .await
+            .ok();
         let batch: Vec<NewAccount> = page
             .items
             .iter()
@@ -195,6 +204,33 @@ impl RefreshProfile {
         accounts::upsert_many(&self.pool, &batch)
             .await
             .map_err(|error| database(&error))?;
+
+        if let Some(followers) = followers {
+            let newcomers: Vec<NewAccount> = followers
+                .items
+                .iter()
+                .filter_map(|account| {
+                    let mastodon_id = account.id.parse::<i64>().ok()?;
+                    Some(NewAccount {
+                        instance_host: target.instance_host.clone(),
+                        mastodon_id,
+                        remote_id: None,
+                        acct: account.acct.clone(),
+                        display_name: (!account.display_name.is_empty())
+                            .then(|| account.display_name.clone()),
+                        followers_count: i32::try_from(account.followers_count).unwrap_or(i32::MAX),
+                        bot: account.bot,
+                        locked: account.locked,
+                        discoverable: account.discoverable,
+                        indexable: account.indexable,
+                        noindex: account.noindex,
+                    })
+                })
+                .collect();
+            accounts::upsert_many(&self.pool, &newcomers)
+                .await
+                .map_err(|error| database(&error))?;
+        }
 
         let mastodon_ids: Vec<i64> = batch.iter().map(|account| account.mastodon_id).collect();
         let resolved = accounts::resolve_ids(&self.pool, &target.instance_host, &mastodon_ids)
